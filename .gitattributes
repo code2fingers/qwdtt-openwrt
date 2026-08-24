@@ -1,0 +1,5 @@
+# The Go sources, the shell scripts and the OpenWrt config files under files/
+# are all consumed on Linux, so keep LF in the working tree as well as in the
+# repository. Without this a Windows checkout is CRLF, which makes gofmt -l
+# flag every file and leaves init scripts with carriage returns.
+* text=auto eol=lf
