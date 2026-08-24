@@ -27,12 +27,12 @@ const (
 	readBufSize        = 1600
 	socketBufSize      = 625 * 1024
 	keepaliveByte      = 0xFF // keepalive marker (DTLS-level or a direct obfs frame)
-	// keepaliveInterval: 1s (as in the reference client) — keeps the TURN
+	// keepaliveInterval: 1s (as in the reference client) - keeps the TURN
 	// permission/NAT mapping "warm" on each of the session's 18-108 relay
 	// sockets more aggressively than the previous 15s/5s.
 	keepaliveInterval = 10 * time.Second
 	// keepaliveMinSize/keepaliveMaxSize: the keepalive packet no longer has a
-	// fixed size (it used to be 1 byte every time) — a random length of
+	// fixed size (it used to be 1 byte every time) - a random length of
 	// 25-44 bytes imitates the "silence" of OPUS in a real call, while a
 	// constant size at even intervals is an easily recognisable pattern for DPI.
 	keepaliveMinSize = 25
@@ -47,7 +47,7 @@ const (
 // protection, while doubling the AEAD work per packet and requiring a
 // separate handshake (see handshakeSem) for each of the 9 worker sessions.
 // Used only when tp.NoDTLS=true AND useWrap=true (otherwise there is no
-// encryption here at all — and then DTLS is mandatory, see the branch below).
+// encryption here at all - and then DTLS is mandatory, see the branch below).
 type obfsDirectConn struct {
 	relay      net.PacketConn
 	peer       net.Addr
@@ -121,11 +121,11 @@ func (c *connectedUDPConn) WriteTo(p []byte, _ net.Addr) (int, error) { return c
 // dialTURNConn opens a socket to the TURN server and wraps it in the
 // net.PacketConn that turn.ClientConfig.Conn expects. UDP by default (as
 // before). If tcp=true, it opens an ordinary TCP connection and wraps it
-// with turn.NewSTUNConn — a regular, documented pion/turn feature (see
+// with turn.NewSTUNConn - a regular, documented pion/turn feature (see
 // examples/turn-client/tcp), not a hand-rolled protocol: NewSTUNConn parses
 // the STUN/ChannelData framing over streaming TCP itself. Needed on networks
 // (seen on Rostelecom) where UDP to the TURN relay is throttled/dropped
-// while TCP to the same relay gets through — compare
+// while TCP to the same relay gets through - compare
 // github.com/anton48/vk-turn-proxy-ios, which reaches the same VK/OK TURN
 // infrastructure (calls.okcdn.ru) over TCP by default.
 func dialTURNConn(turnAddr string, tcp bool) (net.PacketConn, io.Closer, error) {
@@ -232,7 +232,7 @@ func RunSession(
 	}
 
 	// A global rate limit on the moment of TURN Allocate itself (not just on
-	// the start of the worker goroutine, see workerDelay in group.go) — no more
+	// the start of the worker goroutine, see workerDelay in group.go) - no more
 	// than one new TURN allocation per tick across the whole group, no matter
 	// how many workers are ready to make one. Without this the start stagger
 	// does not save us: on an unstable network (Allocate retries/delays) several
@@ -407,7 +407,7 @@ func RunSession(
 			CipherSuites:          []dtls.CipherSuiteID{dtls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
 			ConnectionIDGenerator: dtls.OnlySendCIDGenerator(),
 			MTU:                   1100,
-			// No ServerName (SNI) — less detectable by DPI
+			// No ServerName (SNI) - less detectable by DPI
 		}
 
 		dtlsConn, err := dtls.Client(pipeB, peer, dtlsCfg)
@@ -512,7 +512,7 @@ func RunSession(
 		// The transport is UDP over TURN, so the server has no way of learning
 		// that the connection broke other than a timeout (see handleConnRaw). Say
 		// explicitly that the disconnect was deliberate, so the server frees the
-		// slot in rawRouter at once instead of waiting for idleness — otherwise
+		// slot in rawRouter at once instead of waiting for idleness - otherwise
 		// "dead" connections from the previous session clutter the round-robin in
 		// downlinkLoop when the same device reconnects quickly.
 		go func() {
@@ -527,7 +527,7 @@ func RunSession(
 
 	// Keepalive: prevents TURN allocation timeout and idle disconnect.
 	// The packet is not written straight to activeConn (that would be a second
-	// goroutine competing for the conn with the main Writer below) — it goes
+	// goroutine competing for the conn with the main Writer below) - it goes
 	// into slot.PrioCh without blocking, by the same path as small ACK packets,
 	// and leaves through the single writer goroutine.
 	go func() {
@@ -560,7 +560,7 @@ func RunSession(
 	}()
 
 	// Writer: dispatcher → activeConn. PrioCh (small packets/ACKs) is always
-	// checked first, ahead of SendCh with ordinary data — otherwise an ACK can
+	// checked first, ahead of SendCh with ordinary data - otherwise an ACK can
 	// sit in the queue behind a large chunk of data.
 	go func() {
 		defer proxyWg.Done()
@@ -655,15 +655,15 @@ func RunSession(
 				putPktBuf(pkt)
 				return
 			default:
-				// ReturnCh is full — the packet is dropped, but this goroutine
+				// ReturnCh is full - the packet is dropped, but this goroutine
 				// does not block. There used to be no default here: if writeLoop
 				// could not drain ReturnCh fast enough (say TUN.Write is slow on
 				// a particular device), the Reader would wedge on this select
-				// and stop reading activeConn.Read() altogether — that is, new
+				// and stop reading activeConn.Read() altogether - that is, new
 				// packets from the server (including real answers to user
 				// traffic) stopped being drained from the OS UDP socket and were
 				// lost there, not here. Once the channel filled up it killed all
-				// further receive for that worker — the select has to be
+				// further receive for that worker - the select has to be
 				// non-blocking.
 				putPktBuf(pkt)
 			}

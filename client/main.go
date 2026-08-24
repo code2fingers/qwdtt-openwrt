@@ -364,7 +364,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Listen locally (SO_REUSEADDR — a quick restart without "address already in use")
+	// Listen locally (SO_REUSEADDR - a quick restart without "address already in use")
 	localConn, err := listenUDP(*listen)
 	if err != nil {
 		log.Fatalf("[CLIENT] Listener error %s: %v", *listen, err)

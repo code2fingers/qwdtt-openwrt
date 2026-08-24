@@ -39,7 +39,7 @@ func LoadProfileFromDisk() (*SavedProfile, error) {
 	return &sp, nil
 }
 
-// rotateCaptchaBrowserFP — full rotation of the captcha profile (fp + UA + device_json).
+// rotateCaptchaBrowserFP - full rotation of the captcha profile (fp + UA + device_json).
 func rotateCaptchaBrowserFP() (*SavedProfile, error) {
 	return rotateCaptchaProfile()
 }

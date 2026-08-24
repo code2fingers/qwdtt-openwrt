@@ -61,7 +61,7 @@ const (
 // reorder as loss → cwnd collapse → single-flow speed drops to a few KB/s.
 //
 // Why the size depends on the packet size: large packets (bulk data) are
-// worth grouping more coarsely — fewer relay switches per megabyte of
+// worth grouping more coarsely - fewer relay switches per megabyte of
 // traffic. Small packets (ACK, keepalive) want switching quickly, or moving
 // into the priority channel altogether (see prioThreshold), so that control
 // traffic does not accumulate delay.
@@ -99,8 +99,8 @@ type Dispatcher struct {
 	workers      []*WorkerSlot
 	rrIndex      int
 	rrCount      int   // packets sent to the current worker within the current chunk
-	lastPktTime  int64 // unix millis of the last packet — to reset the chunk after a pause
-	chunkStartTs int64 // unix millis of the current chunk's start — for maxDwellMS
+	lastPktTime  int64 // unix millis of the last packet - to reset the chunk after a pause
+	chunkStartTs int64 // unix millis of the current chunk's start - for maxDwellMS
 	ReturnCh     chan []byte
 	ctx          context.Context
 	cancel       context.CancelFunc
@@ -115,14 +115,14 @@ type Dispatcher struct {
 	// TUN, how many went to the workers (SendCh/PrioCh), and how many were
 	// dropped silently because every worker was overloaded (line ~358, putPktBuf
 	// with no log). Needed to tell "traffic from the TUN is not read at all"
-	// from "it is read, but dropped by overloaded workers" — both look the same
+	// from "it is read, but dropped by overloaded workers" - both look the same
 	// from outside (the server sees no packets), but they are fixed differently.
 }
 
 func NewDispatcher(ctx context.Context, localConn net.PacketConn, stats *Stats) *Dispatcher {
 	dctx, dcancel := context.WithCancel(ctx)
 	ready := make(chan struct{})
-	close(ready) // localConn is already available — read/write at once, as before
+	close(ready) // localConn is already available - read/write at once, as before
 	d := &Dispatcher{
 		localConn: localConn,
 		ready:     ready,
@@ -140,7 +140,7 @@ func NewDispatcher(ctx context.Context, localConn net.PacketConn, stats *Stats) 
 
 // NewDispatcherPendingTUN is the -mode rawtun variant: the TUN fd has not
 // arrived from Android by the time the workers start (Android brings the TUN
-// up only AFTER the server assigns IP/DNS/MTU through RAWCONF — see
+// up only AFTER the server assigns IP/DNS/MTU through RAWCONF - see
 // protocol.go RequestRawConfig). The readLoop/writeLoop goroutines start at
 // once, but wait for AttachTUN() before doing any real I/O.
 func NewDispatcherPendingTUN(ctx context.Context, stats *Stats) *Dispatcher {
@@ -208,7 +208,7 @@ func (d *Dispatcher) Unregister(slot *WorkerSlot) {
 // catch: if the current relay starts to lag, do not wait out the whole
 // chunk. This guarantees:
 //   - Within a chunk packets go through one TURN relay → in-order delivery
-//   - Between chunks — different relays → maximum aggregate throughput
+//   - Between chunks - different relays → maximum aggregate throughput
 //   - ACKs do not get stuck behind large data chunks on a slow relay
 //   - No blocking, and no buffering beyond what is needed
 func (d *Dispatcher) readLoop() {
@@ -289,7 +289,7 @@ func (d *Dispatcher) readLoop() {
 		lastTime := d.lastPktTime
 		d.lastPktTime = now
 		if lastTime > 0 && now-lastTime > 10 {
-			// There was a pause >10ms — the previous chunk no longer benefits
+			// There was a pause >10ms - the previous chunk no longer benefits
 			// from affinity, so start a new one on the next worker.
 			d.rrIndex = (d.rrIndex + 1) % nw
 			d.rrCount = 0
@@ -325,7 +325,7 @@ func (d *Dispatcher) readLoop() {
 				d.mu.Unlock()
 				continue
 			}
-			// Every priority channel is busy — fall through to the ordinary queue below.
+			// Every priority channel is busy - fall through to the ordinary queue below.
 		}
 
 		chunk := chunkSizeFor(pktSize)
@@ -333,7 +333,7 @@ func (d *Dispatcher) readLoop() {
 		if d.chunkStartTs == 0 {
 			d.chunkStartTs = now
 		} else if now-d.chunkStartTs >= maxDwellMS {
-			// The current relay has held the chunk too long — switch without
+			// The current relay has held the chunk too long - switch without
 			// waiting for the chunk counter to run out.
 			d.rrIndex = (d.rrIndex + 1) % nw
 			d.rrCount = 0
@@ -355,7 +355,7 @@ func (d *Dispatcher) readLoop() {
 				d.chunkStartTs = now
 			}
 		default:
-			// The current worker is overloaded — find a free one, start a new chunk
+			// The current worker is overloaded - find a free one, start a new chunk
 			for i := 1; i < nw; i++ {
 				altIdx := (idx + i) % nw
 				select {
@@ -377,7 +377,7 @@ func (d *Dispatcher) readLoop() {
 				atomic.AddUint64(&d.tunSentCount, 1)
 			}
 		} else {
-			// Every worker is overloaded — advance the pointer, the packet is dropped
+			// Every worker is overloaded - advance the pointer, the packet is dropped
 			d.rrIndex = (idx + 1) % nw
 			d.rrCount = 0
 			putPktBuf(pkt)

@@ -497,7 +497,7 @@ func getTokenChain(ctx context.Context, link string, streamID int, creds VKCrede
 				successToken, solveErr := solveCaptchaBySelectedMode(ctx, streamID, attempt+1, captchaErr, client, profile, savedProfile)
 				if solveErr != nil {
 					if errors.Is(solveErr, errCaptchaSessionExpired) {
-						log.Printf("[STREAM %d] [CAPTCHA] session exhausted — requesting a new captcha from VK", streamID)
+						log.Printf("[STREAM %d] [CAPTCHA] session exhausted - requesting a new captcha from VK", streamID)
 						savedProfile, _ = LoadProfileFromDisk()
 						data = originalData
 						vkDelayRandom(800, 1500)
@@ -874,7 +874,7 @@ func setupGlobalResolver(arg string) {
 	}
 	servers := goDNSServersForArg(arg)
 	log.Printf(
-		"[CLIENT] DNS for VK: %s (%s) — UDP/TCP :53",
+		"[CLIENT] DNS for VK: %s (%s) - UDP/TCP :53",
 		goDNSLabel(arg),
 		formatGoDNSServers(servers),
 	)

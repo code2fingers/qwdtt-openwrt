@@ -20,7 +20,7 @@ const workersPerGroup = 9
 const allocateGateInterval = 200 * time.Millisecond
 
 // WorkerGroup:
-// Starts 9 streams on one set of credentials. There is no rotation — it runs until the workers die.
+// Starts 9 streams on one set of credentials. There is no rotation - it runs until the workers die.
 func WorkerGroup(
 	ctx context.Context,
 	groupID int,
@@ -127,12 +127,12 @@ func WorkerGroup(
 
 	// A group-wide rate limit on TURN Allocate: no more than one new
 	// allocation per tick, no matter how many workers are ready to make one
-	// (the start stagger is a separate thing, see workerDelay below — it
+	// (the start stagger is a separate thing, see workerDelay below - it
 	// spreads out the start of the goroutines, but not the Allocate retries
 	// inside ones already running). Without this, on an unstable network
 	// several workers still overlap and together burn through the VK quota
 	// (error 486) faster than they should. See RunSession(allocateGate) in
-	// session.go and the comment there about free-turn-proxy — the same trick.
+	// session.go and the comment there about free-turn-proxy - the same trick.
 	allocateTicker := time.NewTicker(allocateGateInterval)
 	defer allocateTicker.Stop()
 
@@ -311,18 +311,18 @@ type TurnParams struct {
 	Port    string
 	Hashes  []string
 	WrapKey []byte // Password-derived WRAP key (32 bytes), nil = disabled
-	ObfsMode string // "audio" or "video" — RTP masking mode
+	ObfsMode string // "audio" or "video" - RTP masking mode
 	// NoDTLS: skip DTLS and run RTP-obfs AEAD directly over the TURN relay.
 	// Requires a server that can accept direct (DTLS-less) sessions on a
-	// separate port/listener — see server.go -listen-direct.
+	// separate port/listener - see server.go -listen-direct.
 	NoDTLS bool
 	// RawMode: raw-IP without WireGuard (see server.go -listen-raw, handleConnRaw).
-	// Implies NoDTLS — the server on -listen-raw does not speak DTLS.
+	// Implies NoDTLS - the server on -listen-raw does not speak DTLS.
 	RawMode bool
 	// TCPTransport: connect to the TURN relay over TCP instead of UDP (see
 	// dialTURNConn in session.go). On some networks (seen on Rostelecom)
 	// UDP to TURN is throttled/dropped by the ISP more aggressively than
-	// TCP to the same relay — this flag works around exactly that.
+	// TCP to the same relay - this flag works around exactly that.
 	TCPTransport bool
 }
 

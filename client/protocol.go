@@ -58,7 +58,7 @@ func SendAuth(conn net.Conn, deviceID, password string) error {
 }
 
 // RequestRawConfig asks the server for the raw-IP mode configuration
-// (no WireGuard) — the server answers "RAWCONF:ip|dns|mtu" (see server.go
+// (no WireGuard) - the server answers "RAWCONF:ip|dns|mtu" (see server.go
 // handleConnRaw). ip is empty on the first call, if the server has not assigned one yet.
 func RequestRawConfig(conn net.Conn, deviceID, password string) (ip, dnsCSV string, mtu int, err error) {
 	payload := fmt.Sprintf("GETCONF_RAW:%s|%s", deviceID, password)

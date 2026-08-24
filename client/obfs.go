@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// obfs.go — WebRTC SRTP-like obfuscation for DTLS traffic
+// obfs.go - WebRTC SRTP-like obfuscation for DTLS traffic
 // Each UDP packet is wrapped in an RTP header making it indistinguishable
 // from a real WebRTC OPUS audio stream to DPI systems.
 //
@@ -11,8 +11,8 @@
 // AEAD's associated data.
 //
 // Unwrap still recognizes a 24-byte (base + RFC 8285 one-byte-header
-// extension) variant on receive by checking the X bit — that longer format
-// existed briefly and some deployed servers may still send it — but this
+// extension) variant on receive by checking the X bit - that longer format
+// existed briefly and some deployed servers may still send it - but this
 // client always WRITES the plain 12-byte form.
 
 package main
@@ -51,7 +51,7 @@ func getAEAD(key []byte) (cipher.AEAD, error) {
 
 // ObfsConfig holds per-session obfuscation parameters.
 type ObfsConfig struct {
-	SSRC        uint32 // Synchronization Source — random per session
+	SSRC        uint32 // Synchronization Source - random per session
 	PayloadType uint8  // RTP payload type (111 = OPUS dynamic)
 	PaddingMax  int    // Max random padding bytes appended
 }
@@ -113,14 +113,14 @@ func obfsBuildNonce(ssrc uint32, seq uint16, ts uint32) []byte {
 	n := make([]byte, 12)
 	binary.BigEndian.PutUint32(n[0:4], ssrc)
 	binary.BigEndian.PutUint16(n[4:6], seq)
-	// n[6], n[7] = 0x00 — zero padding for unique nonce space
+	// n[6], n[7] = 0x00 - zero padding for unique nonce space
 	binary.BigEndian.PutUint32(n[8:12], ts)
 	return n
 }
 
 // rtpHeaderLenFull is the base 12-byte RTP header plus a one-byte-header RTP
 // extension (RFC 8285) carrying abs-send-time (3 bytes) and
-// transport-wide-cc (2 bytes), padded to a 4-byte boundary — the same shape
+// transport-wide-cc (2 bytes), padded to a 4-byte boundary - the same shape
 // real WebRTC clients (and VK calls) send on essentially every packet.
 // rtpHeaderLenLegacy is the bare 12-byte header (no extension), for
 // compatibility with servers running before this extension was added.
@@ -170,7 +170,7 @@ func obfsWrapPacket(key, payload []byte, cfg *ObfsConfig, state *ObfsState) ([]b
 	out := make([]byte, outLen)
 
 	// RTP Header (12 bytes, no extension).
-	// Byte 0 bit layout: V(2) P(1) X(1) CC(4) — masks 0xC0/0x20/0x10/0x0F.
+	// Byte 0 bit layout: V(2) P(1) X(1) CC(4) - masks 0xC0/0x20/0x10/0x0F.
 	out[0] = 0x80 | 0x20 // V=2, P=1 (padding present), X=0 (no extension)
 	out[1] = cfg.PayloadType & 0x7F
 	binary.BigEndian.PutUint16(out[2:4], seq)
@@ -213,7 +213,7 @@ func obfsUnwrapPacket(key, wire, dst []byte) (int, error) {
 	}
 
 	// Header length is determined by the X bit (extension present) of the
-	// INCOMING packet, not by our own LegacyHeader config — this lets a
+	// INCOMING packet, not by our own LegacyHeader config - this lets a
 	// single client transparently talk to both old (12-byte, no extension)
 	// and new (24-byte, with extension) servers without needing to know in
 	// advance which one it's receiving from.

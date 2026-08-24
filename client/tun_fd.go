@@ -17,10 +17,10 @@ import (
 //
 // go_client is the server (it listens) and Android is the client (it
 // connects after establish()), not the other way round. It used to be
-// reversed (Android listened, go_client dialled with retries) — that
+// reversed (Android listened, go_client dialled with retries) - that
 // created a race: go_client starts before Android can bring the TUN up and
 // create the LocalServerSocket, so the first attempt almost always got
-// connection refused. Inverting it removes the race entirely — go_client is
+// connection refused. Inverting it removes the race entirely - go_client is
 // already listening long before Android even begins establish().
 func recvTunFD(sockPath string) (*os.File, error) {
 	rawDiagf("recvTunFD: listen unix %q", sockPath)
