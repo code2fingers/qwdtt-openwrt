@@ -160,7 +160,7 @@ func (c *wgQuickConfig) ipcRequest() string {
 	return b.String()
 }
 
-// startUserspaceWireGuard поднимает WG через netstack (без VpnService / kernel TUN).
+// startUserspaceWireGuard brings WG up through netstack (no VpnService / kernel TUN).
 func startUserspaceWireGuard(conf string) (*device.Device, *netstack.Net, error) {
 	cfg, err := parseWgQuick(conf)
 	if err != nil {

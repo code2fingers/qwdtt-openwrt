@@ -14,13 +14,13 @@ import (
 
 const workersPerGroup = 9
 
-// allocateGateInterval — минимальный интервал между TURN Allocate-запросами
-// внутри одной группы воркеров (см. комментарий у allocateTicker в
-// WorkerGroup). Тот же порядок величины, что у free-turn-proxy (200ms).
+// allocateGateInterval is the minimum interval between TURN Allocate requests
+// within one worker group (see the comment on allocateTicker in
+// WorkerGroup). The same order of magnitude as free-turn-proxy (200ms).
 const allocateGateInterval = 200 * time.Millisecond
 
 // WorkerGroup:
-// Запускает 9 потоков с одними кредами. Ротации нет — работает до смерти воркеров.
+// Starts 9 streams on one set of credentials. There is no rotation — it runs until the workers die.
 func WorkerGroup(
 	ctx context.Context,
 	groupID int,
@@ -38,9 +38,9 @@ func WorkerGroup(
 	waitReady <-chan struct{},
 	signalReady chan<- struct{},
 ) {
-	// Каскадный запуск: ждем свою очередь
+	// Cascaded start: wait for our turn
 	if waitReady != nil {
-		log.Printf("[ГРУППА #%d] Ожидание сигнала от предыдущей группы...", groupID)
+		log.Printf("[GROUP #%d] Waiting for the signal from the previous group...", groupID)
 		select {
 		case <-waitReady:
 		case <-ctx.Done():
@@ -53,7 +53,7 @@ func WorkerGroup(
 		configSent = 1
 	}
 
-	// Doze-mode пауза
+	// Doze-mode pause
 	for atomic.LoadInt32(pauseFlag) != 0 {
 		if ctx.Err() != nil {
 			return
@@ -66,7 +66,7 @@ func WorkerGroup(
 	if len(shortHash) > 8 {
 		shortHash = shortHash[:8]
 	}
-	log.Printf("[ГРУППА #%d] Запрос кредов (хеш: %s...)", groupID, shortHash)
+	log.Printf("[GROUP #%d] Requesting credentials (hash: %s...)", groupID, shortHash)
 
 	credStreamID := groupID * 100
 	user, pass, turnURLs, err := GetCreds(ctx, hash, credStreamID)
@@ -74,11 +74,11 @@ func WorkerGroup(
 	if err == nil {
 		creds = &Credentials{User: user, Pass: pass, TurnURLs: turnURLs, CacheStreamID: credStreamID}
 	} else {
-		log.Printf("[ГРУППА #%d] Ошибка кредов: %v", groupID, err)
+		log.Printf("[GROUP #%d] Credentials error: %v", groupID, err)
 		return
 	}
 
-	log.Printf("[ГРУППА #%d] Креды OK, TURN: %v, %d воркеров", groupID, creds.TurnURLs, len(workerIDs))
+	log.Printf("[GROUP #%d] Credentials OK, TURN: %v, %d workers", groupID, creds.TurnURLs, len(workerIDs))
 
 	var configRequestInFlight int32
 	var wg sync.WaitGroup
@@ -93,7 +93,7 @@ func WorkerGroup(
 		now := time.Now().Unix()
 		last := lastCredRefresh.Load()
 		if last > 0 && now-last < 15 {
-			log.Printf("[TURN] Креды уже обновлялись %d сек назад, ждём следующий retry (%s)", now-last, reason)
+			log.Printf("[TURN] Credentials were already refreshed %d s ago, waiting for the next retry (%s)", now-last, reason)
 			return true
 		}
 
@@ -103,7 +103,7 @@ func WorkerGroup(
 		}
 		u, p, urls, refreshErr := GetCreds(ctx, hash, credStreamID)
 		if refreshErr != nil {
-			log.Printf("[TURN] Не удалось обновить креды после %s: %v", reason, refreshErr)
+			log.Printf("[TURN] Could not refresh credentials after %s: %v", reason, refreshErr)
 			return false
 		}
 
@@ -111,35 +111,35 @@ func WorkerGroup(
 		creds = &Credentials{User: u, Pass: p, TurnURLs: urls, CacheStreamID: credStreamID}
 		credsMu.Unlock()
 		lastCredRefresh.Store(time.Now().Unix())
-		log.Printf("[TURN] Креды обновлены после %s, TURN urls=%d", reason, len(urls))
+		log.Printf("[TURN] Credentials refreshed after %s, TURN urls=%d", reason, len(urls))
 		return true
 	}
 
-	// Сигнализируем следующей группе, что мы успешно запустились (креды получены + фора)
+	// Signal the next group that we started successfully (credentials in hand + a head start)
 	if signalReady != nil {
 		go func() {
 			delayMs := 1000 + rand.Intn(500)
 			time.Sleep(time.Duration(delayMs) * time.Millisecond)
 			close(signalReady)
-			log.Printf("[ГРУППА #%d] Успешный старт! Передача эстафеты следующей группе...", groupID)
+			log.Printf("[GROUP #%d] Started successfully! Handing the baton to the next group...", groupID)
 		}()
 	}
 
-	// Общий rate-limit на TURN Allocate по всей группе: не более одной новой
-	// аллокации за тик, независимо от того, сколько воркеров сейчас готовы
-	// её выполнить (стартовый stagger — отдельная вещь, см. workerDelay ниже —
-	// он размазывает старт горутин, но не сами ретраи Allocate внутри уже
-	// запущенных). Без этого на нестабильной сети несколько воркеров всё
-	// равно накладываются друг на друга и вместе выжигают VK-квоту (error
-	// 486) быстрее, чем должны. См. RunSession(allocateGate) в session.go и
-	// комментарий там про free-turn-proxy — тот же приём.
+	// A group-wide rate limit on TURN Allocate: no more than one new
+	// allocation per tick, no matter how many workers are ready to make one
+	// (the start stagger is a separate thing, see workerDelay below — it
+	// spreads out the start of the goroutines, but not the Allocate retries
+	// inside ones already running). Without this, on an unstable network
+	// several workers still overlap and together burn through the VK quota
+	// (error 486) faster than they should. See RunSession(allocateGate) in
+	// session.go and the comment there about free-turn-proxy — the same trick.
 	allocateTicker := time.NewTicker(allocateGateInterval)
 	defer allocateTicker.Stop()
 
 	for i, wid := range workerIDs {
 		wg.Add(1)
 
-		// Stagger: 200мс между воркерами
+		// Stagger: 200ms between workers
 		workerDelay := time.Duration(i) * 200 * time.Millisecond
 
 		go func(wid int, delay time.Duration) {
@@ -211,34 +211,37 @@ func WorkerGroup(
 						strings.Contains(errStrLower, "flood control") ||
 						strings.Contains(errStrLower, "ip mismatch") ||
 						strings.Contains(errStrLower, "error 29") {
-						errStr += " (ошибка со стороны ВК)"
+						errStr += " (VK-side error)"
 					}
 
+					// Stays Russian: nothing in this repo produces this text, it
+					// arrives from the server, so translating it here would
+					// silently stop dead-hash detection.
 					if strings.Contains(errStr, "хеш мёртв") ||
 						strings.Contains(errStr, "FATAL_AUTH") {
-						log.Printf("[ВОРКЕР #%d] Фатальная ошибка: %s", wid, errStr)
+						log.Printf("[WORKER #%d] Fatal error: %s", wid, errStr)
 						return
 					}
 
 					attempt++
 					if isTurnQuota {
-						log.Printf("[ВОРКЕР #%d] [TURN] Квота relay исчерпана (один аккаунт VK = мало слотов), ждём: %s", wid, errStr)
+						log.Printf("[WORKER #%d] [TURN] Relay quota exhausted (one VK account = few slots), waiting: %s", wid, errStr)
 					} else if turnAllocAttrMissing {
-						log.Printf("[ВОРКЕР #%d] [TURN] Allocate вернул неполный ответ, обновляем TURN-креды и повторяем (попытка %d): %s", wid, attempt, errStr)
+						log.Printf("[WORKER #%d] [TURN] Allocate returned an incomplete response, refreshing TURN credentials and retrying (attempt %d): %s", wid, attempt, errStr)
 						refreshCreds("TURN Allocate attribute-not-found")
 					} else if turnCredRefreshNeeded {
-						log.Printf("[ВОРКЕР #%d] [TURN] Ошибка allocation/кредов, обновляем TURN-креды и повторяем (попытка %d): %s", wid, attempt, errStr)
+						log.Printf("[WORKER #%d] [TURN] Allocation/credentials error, refreshing TURN credentials and retrying (attempt %d): %s", wid, attempt, errStr)
 						refreshCreds("TURN allocation error")
 					} else {
-						log.Printf("[ВОРКЕР #%d] Ошибка (попытка %d): %s", wid, attempt, errStr)
+						log.Printf("[WORKER #%d] Error (attempt %d): %s", wid, attempt, errStr)
 					}
 
-					// Если ошибка STUN (credentials invalid), воркер не сможет переподключиться. Завершаем.
+					// On a STUN error (credentials invalid) the worker cannot reconnect. Stop it.
 					isStunDeath := strings.Contains(errStrLower, "error 29") ||
 						strings.Contains(errStrLower, "cannot create socket")
 
 					if isStunDeath {
-						log.Printf("[ВОРКЕР #%d] Невосстановимая TURN/STUN ошибка, завершение: %s", wid, errStr)
+						log.Printf("[WORKER #%d] Unrecoverable TURN/STUN error, stopping: %s", wid, errStr)
 						return
 					}
 				}
@@ -261,10 +264,10 @@ func WorkerGroup(
 	}
 
 	wg.Wait()
-	log.Printf("[ГРУППА #%d] Все воркеры группы завершились.", groupID)
+	log.Printf("[GROUP #%d] All workers in the group have finished.", groupID)
 }
 
-// ParseHashes — парсит строку хешей
+// ParseHashes parses a comma-separated string of hashes
 func ParseHashes(raw string) []string {
 	var result []string
 	seen := make(map[string]struct{})
@@ -302,28 +305,28 @@ func normalizeVKJoinHash(input string) string {
 	return strings.Trim(strings.TrimSpace(s), "/")
 }
 
-// TurnParams — конфигурация TURN
+// TurnParams is the TURN configuration
 type TurnParams struct {
 	Host    string
 	Port    string
 	Hashes  []string
 	WrapKey []byte // Password-derived WRAP key (32 bytes), nil = disabled
 	ObfsMode string // "audio" or "video" — RTP masking mode
-	// NoDTLS: пропустить DTLS и идти RTP-obfs AEAD напрямую поверх TURN relay.
-	// Требует сервер, который умеет принимать прямые (без DTLS) сессии на
-	// отдельном порту/слушателе — см. server.go -listen-direct.
+	// NoDTLS: skip DTLS and run RTP-obfs AEAD directly over the TURN relay.
+	// Requires a server that can accept direct (DTLS-less) sessions on a
+	// separate port/listener — see server.go -listen-direct.
 	NoDTLS bool
-	// RawMode: raw-IP без WireGuard (см. server.go -listen-raw, handleConnRaw).
-	// Подразумевает NoDTLS — сервер на -listen-raw DTLS не понимает.
+	// RawMode: raw-IP without WireGuard (see server.go -listen-raw, handleConnRaw).
+	// Implies NoDTLS — the server on -listen-raw does not speak DTLS.
 	RawMode bool
-	// TCPTransport: соединяться с TURN-relay по TCP вместо UDP (см.
-	// dialTURNConn в session.go). На некоторых сетях (замечено на
-	// Ростелекоме) UDP до TURN душится/дропается провайдером агрессивнее,
-	// чем TCP на тот же relay — этот флаг обходит именно это.
+	// TCPTransport: connect to the TURN relay over TCP instead of UDP (see
+	// dialTURNConn in session.go). On some networks (seen on Rostelecom)
+	// UDP to TURN is throttled/dropped by the ISP more aggressively than
+	// TCP to the same relay — this flag works around exactly that.
 	TCPTransport bool
 }
 
-// Credentials — учетные данные TURN
+// Credentials holds the TURN credentials
 type Credentials struct {
 	User          string
 	Pass          string

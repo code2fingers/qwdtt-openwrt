@@ -60,7 +60,7 @@ func (s *captchaV2Session) solveSliderCaptcha(
 	if err != nil {
 		return "", err
 	}
-	log.Printf("[КАПЧА] v2 slider puzzle decoded: grid=%d attempts=%d swaps=%d", puzzle.Size, puzzle.Attempts, len(puzzle.Swaps))
+	log.Printf("[CAPTCHA] v2 slider puzzle decoded: grid=%d attempts=%d swaps=%d", puzzle.Size, puzzle.Attempts, len(puzzle.Swaps))
 
 	guesses, err := rankSliderGuessesV2(puzzle.Image, puzzle.Size, puzzle.Swaps)
 	if err != nil {
@@ -77,7 +77,7 @@ func (s *captchaV2Session) solveSliderCaptcha(
 	if limit <= 0 {
 		return "", errors.New("slider has no attempts available")
 	}
-	log.Printf("[КАПЧА] v2 slider guesses ranked: total=%d limit=%d", len(guesses), limit)
+	log.Printf("[CAPTCHA] v2 slider guesses ranked: total=%d limit=%d", len(guesses), limit)
 
 	deviceJSON := s.deviceJSON()
 	if _, err := s.captchaRequest("captchaNotRobot.componentDone", [][2]string{
@@ -92,7 +92,7 @@ func (s *captchaV2Session) solveSliderCaptcha(
 	}
 
 	for i := 0; i < limit; i++ {
-		log.Printf("[КАПЧА] v2 slider attempt %d/%d (guess #%d)", i+1, limit, guesses[i].Index)
+		log.Printf("[CAPTCHA] v2 slider attempt %d/%d (guess #%d)", i+1, limit, guesses[i].Index)
 		answerData, err := json.Marshal(struct {
 			Value []int `json:"value"`
 		}{Value: guesses[i].Swaps})
@@ -114,7 +114,7 @@ func (s *captchaV2Session) solveSliderCaptcha(
 			if check.SuccessToken == "" {
 				return "", errors.New("captcha success token not found")
 			}
-			log.Printf("[КАПЧА] v2 slider accepted on attempt %d", i+1)
+			log.Printf("[CAPTCHA] v2 slider accepted on attempt %d", i+1)
 			return check.SuccessToken, nil
 		}
 		if strings.EqualFold(check.Status, "error_limit") {
@@ -196,7 +196,7 @@ func splitSliderStepsV2(steps []int) (int, []int, int, error) {
 	if len(tail)%2 != 0 {
 		attempts = tail[len(tail)-1]
 		tail = tail[:len(tail)-1]
-		log.Printf("[КАПЧА] v2 slider payload had odd-length tail; fallback attempts=%d", attempts)
+		log.Printf("[CAPTCHA] v2 slider payload had odd-length tail; fallback attempts=%d", attempts)
 	}
 	if attempts <= 0 {
 		attempts = 4

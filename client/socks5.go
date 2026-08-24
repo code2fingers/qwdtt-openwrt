@@ -23,7 +23,7 @@ func (r *netstackNameResolver) Resolve(ctx context.Context, name string) (contex
 	if err != nil {
 		return ctx, nil, err
 	}
-	// Только IPv4: туннель без IPv6-маршрутов.
+	// IPv4 only: the tunnel carries no IPv6 routes.
 	for _, a := range addrs {
 		ip := net.ParseIP(a)
 		if ip == nil {
@@ -36,7 +36,7 @@ func (r *netstackNameResolver) Resolve(ctx context.Context, name string) (contex
 	return ctx, nil, fmt.Errorf("no IPv4 addresses for %s", name)
 }
 
-// ipv4OnlyRule отклоняет CONNECT на IPv6 (клиент часто пробует AAAA первым).
+// ipv4OnlyRule rejects CONNECT to IPv6 (clients often try AAAA first).
 type ipv4OnlyRule struct{}
 
 func (ipv4OnlyRule) Allow(ctx context.Context, req *socks5.Request) (context.Context, bool) {
@@ -69,7 +69,7 @@ func isBenignSocksNoise(msg string) bool {
 	if strings.Contains(lower, "ipv6") {
 		return true
 	}
-	// Connect to [2001:…] / ::ffff:… / no route на v6
+	// Connect to [2001:…] / ::ffff:… / no route on v6
 	if strings.Contains(msg, "[") && strings.Contains(msg, "]") && strings.Contains(msg, ":") {
 		if strings.Contains(lower, "no route") || strings.Contains(lower, "connect to") {
 			return true

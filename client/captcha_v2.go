@@ -127,7 +127,7 @@ func solveVkCaptchaV2Attempts(
 	if maxAttempts < 1 {
 		maxAttempts = 1
 	}
-	log.Printf("[КАПЧА] Решаю VK Smart Captcha автоматически (v2, попыток=%d)...", maxAttempts)
+	log.Printf("[CAPTCHA] Solving VK Smart Captcha automatically (v2, attempts=%d)...", maxAttempts)
 
 	s := &captchaV2Session{
 		ctx:          ctx,
@@ -143,7 +143,7 @@ func solveVkCaptchaV2Attempts(
 		if solveErr == nil {
 			return token, nil
 		}
-		log.Printf("[КАПЧА] v2 попытка %d ошибка: %v", attempt, solveErr)
+		log.Printf("[CAPTCHA] v2 attempt %d error: %v", attempt, solveErr)
 		if errors.Is(solveErr, errCaptchaV2RateLimit) {
 			return "", solveErr
 		}
@@ -189,12 +189,12 @@ func (s *captchaV2Session) solveOnce(captchaErr *VkCaptchaError) (string, error)
 		return "", errors.New("failed to find slider captcha settings")
 	}
 
-	log.Printf("[КАПЧА] v2 solving pow difficulty=%d", page.PowDifficulty)
+	log.Printf("[CAPTCHA] v2 solving pow difficulty=%d", page.PowDifficulty)
 	hash := solveCaptchaPoWV2(s.ctx, page.PowInput, page.PowDifficulty)
 	if hash == "" {
 		return "", errors.New("captcha pow failed")
 	}
-	log.Printf("[КАПЧА] v2 pow solved")
+	log.Printf("[CAPTCHA] v2 pow solved")
 
 	base := captchaV2BaseValues(captchaErr.SessionToken, s.domain)
 	if _, settingsErr := s.captchaRequest("captchaNotRobot.settings", base); settingsErr != nil {
@@ -215,7 +215,7 @@ func (s *captchaV2Session) solveOnce(captchaErr *VkCaptchaError) (string, error)
 
 	if m := reCaptchaV2Version.FindStringSubmatch(page.ScriptURL); len(m) > 1 {
 		if m[1] != captchaV2ScriptVersion {
-			log.Printf("[КАПЧА] v2 script version drift: known=%s latest=%s", captchaV2ScriptVersion, m[1])
+			log.Printf("[CAPTCHA] v2 script version drift: known=%s latest=%s", captchaV2ScriptVersion, m[1])
 		}
 	}
 
@@ -230,7 +230,7 @@ func (s *captchaV2Session) solveOnce(captchaErr *VkCaptchaError) (string, error)
 	}
 	var token string
 	for {
-		log.Printf("[КАПЧА] v2 solving show_type=%s", showType)
+		log.Printf("[CAPTCHA] v2 solving show_type=%s", showType)
 		switch showType {
 		case "slider":
 			token, err = s.solveSliderCaptcha(captchaErr.SessionToken, browserFP, hash, sliderSettings, debugInfo)
@@ -243,7 +243,7 @@ func (s *captchaV2Session) solveOnce(captchaErr *VkCaptchaError) (string, error)
 			break
 		}
 		if errors.Is(err, errCaptchaV2Bot) && !strings.EqualFold(showType, "slider") && sliderSettings != "" {
-			log.Printf("[КАПЧА] v2 checkbox returned BOT, trying slider")
+			log.Printf("[CAPTCHA] v2 checkbox returned BOT, trying slider")
 			showType = "slider"
 			continue
 		}
@@ -255,7 +255,7 @@ func (s *captchaV2Session) solveOnce(captchaErr *VkCaptchaError) (string, error)
 	}
 
 	if _, endErr := s.captchaRequest("captchaNotRobot.endSession", base); endErr != nil {
-		log.Printf("[КАПЧА] v2 endSession failed: %v", endErr)
+		log.Printf("[CAPTCHA] v2 endSession failed: %v", endErr)
 	}
 	return token, nil
 }
@@ -317,12 +317,12 @@ func (s *captchaV2Session) deviceJSON() string {
 	return captchaV2DeviceJSON(s.savedProfile)
 }
 
-// rotateCaptchaV2Identity — новый browser_fp, UA и device_json на каждую попытку v2.
+// rotateCaptchaV2Identity issues a new browser_fp, UA and device_json for every v2 attempt.
 func rotateCaptchaV2Identity(s *captchaV2Session, base *SavedProfile) {
 	s.profile = getRandomProfile()
 	fp, err := captchaV2BrowserFP()
 	if err != nil {
-		log.Printf("[КАПЧА] v2 fp generate failed: %v", err)
+		log.Printf("[CAPTCHA] v2 fp generate failed: %v", err)
 		return
 	}
 	if s.savedProfile == nil {
@@ -335,7 +335,7 @@ func rotateCaptchaV2Identity(s *captchaV2Session, base *SavedProfile) {
 	if len(short) > 8 {
 		short = fp[:8]
 	}
-	log.Printf("[КАПЧА] v2 identity rotated fp=%s... ua=%s", short, truncateUA(s.profile.UserAgent))
+	log.Printf("[CAPTCHA] v2 identity rotated fp=%s... ua=%s", short, truncateUA(s.profile.UserAgent))
 }
 
 func truncateUA(ua string) string {
@@ -443,7 +443,7 @@ func (s *captchaV2Session) fetchDebugInfo(scriptURL string) (string, error) {
 	}
 	v := string(m[1])
 	captchaV2DebugCache.Store(scriptURL, v)
-	log.Printf("[КАПЧА] v2 debug_info fetched url=%s", scriptURL)
+	log.Printf("[CAPTCHA] v2 debug_info fetched url=%s", scriptURL)
 	return v, nil
 }
 
@@ -536,9 +536,9 @@ func (s *captchaV2Session) performCaptchaCheck(
 		return nil, err
 	}
 	if check.ShowType != "" {
-		log.Printf("[КАПЧА] v2 check status=%s show_type=%s", check.Status, check.ShowType)
+		log.Printf("[CAPTCHA] v2 check status=%s show_type=%s", check.Status, check.ShowType)
 	} else {
-		log.Printf("[КАПЧА] v2 check status=%s", check.Status)
+		log.Printf("[CAPTCHA] v2 check status=%s", check.Status)
 	}
 	return check, nil
 }
@@ -663,7 +663,7 @@ func (s *captchaV2Session) doRaw(
 	}
 	defer func() {
 		if closeErr := resp.Body.Close(); closeErr != nil {
-			log.Printf("[КАПЧА] v2 close body: %s", closeErr)
+			log.Printf("[CAPTCHA] v2 close body: %s", closeErr)
 		}
 	}()
 	return io.ReadAll(resp.Body)

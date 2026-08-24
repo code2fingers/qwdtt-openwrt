@@ -26,28 +26,28 @@ const (
 	sessionReadTimeout = 30 * time.Minute // Increased from 60s to 30min
 	readBufSize        = 1600
 	socketBufSize      = 625 * 1024
-	keepaliveByte      = 0xFF // keepalive marker (DTLS-level или прямой obfs-кадр)
-	// keepaliveInterval: 1с (как у референсного клиента) — агрессивнее держит
-	// TURN permission/NAT-маппинг "тёплым" на каждом из 18-108 relay-сокетов
-	// сессии, чем прежние 15с/5с.
+	keepaliveByte      = 0xFF // keepalive marker (DTLS-level or a direct obfs frame)
+	// keepaliveInterval: 1s (as in the reference client) — keeps the TURN
+	// permission/NAT mapping "warm" on each of the session's 18-108 relay
+	// sockets more aggressively than the previous 15s/5s.
 	keepaliveInterval = 10 * time.Second
-	// keepaliveMinSize/keepaliveMaxSize: keepalive-пакет теперь не
-	// фиксированного размера (было 1 байт постоянно) — случайная длина
-	// 25-44 байта имитирует "тишину" OPUS в реальном звонке; постоянный
-	// размер через равные интервалы — легко узнаваемый паттерн для DPI.
+	// keepaliveMinSize/keepaliveMaxSize: the keepalive packet no longer has a
+	// fixed size (it used to be 1 byte every time) — a random length of
+	// 25-44 bytes imitates the "silence" of OPUS in a real call, while a
+	// constant size at even intervals is an easily recognisable pattern for DPI.
 	keepaliveMinSize = 25
-	keepaliveMaxSize = 20 // диапазон добавки к keepaliveMinSize (rand.Intn(20))
+	keepaliveMaxSize = 20 // range added on top of keepaliveMinSize (rand.Intn(20))
 )
 
-// obfsDirectConn — net.Conn поверх TURN relay БЕЗ DTLS.
+// obfsDirectConn is a net.Conn over the TURN relay WITHOUT DTLS.
 //
-// RTP-obfs (ChaCha20-Poly1305/AES-GCM AEAD, obfs.go) уже даёт полноценное
-// шифрование+аутентификацию каждого пакета. DTLS поверх него был чистым
-// оверхедом: self-signed сертификат с InsecureSkipVerify не добавлял
-// реальной защиты, зато удваивал AEAD-обработку на пакет и требовал
-// отдельного хендшейка (см. handshakeSem) на каждую из 9 воркер-сессий.
-// Используется только когда tp.NoDTLS=true И useWrap=true (иначе тут вообще
-// нет шифрования — тогда обязателен DTLS, см. ветку ниже).
+// RTP-obfs (ChaCha20-Poly1305/AES-GCM AEAD, obfs.go) already gives every
+// packet full encryption and authentication. DTLS on top of it was pure
+// overhead: a self-signed certificate with InsecureSkipVerify added no real
+// protection, while doubling the AEAD work per packet and requiring a
+// separate handshake (see handshakeSem) for each of the 9 worker sessions.
+// Used only when tp.NoDTLS=true AND useWrap=true (otherwise there is no
+// encryption here at all — and then DTLS is mandatory, see the branch below).
 type obfsDirectConn struct {
 	relay      net.PacketConn
 	peer       net.Addr
@@ -57,7 +57,7 @@ type obfsDirectConn struct {
 }
 
 func (c *obfsDirectConn) Read(b []byte) (int, error) {
-	wire := make([]byte, len(b)+80) // RTP-заголовок(12) + AEAD tag + padding
+	wire := make([]byte, len(b)+80) // RTP header(12) + AEAD tag + padding
 	for {
 		n, _, err := c.relay.ReadFrom(wire)
 		if err != nil {
@@ -95,7 +95,7 @@ func (c *obfsDirectConn) SetWriteDeadline(t time.Time) error { return c.relay.Se
 // Handshake semaphore: limit to 3 concurrent DTLS handshakes
 var handshakeSem = make(chan struct{}, 3)
 
-// NullLoggerFactory подавляет логи pion
+// NullLoggerFactory suppresses pion's logs
 type NullLoggerFactory struct{}
 
 func (n *NullLoggerFactory) NewLogger(_ string) logging.LeveledLogger { return &NullLogger{} }
@@ -113,30 +113,30 @@ func (n *NullLogger) Warnf(_ string, _ ...interface{})  {}
 func (n *NullLogger) Error(_ string)                    {}
 func (n *NullLogger) Errorf(_ string, _ ...interface{}) {}
 
-// connectedUDPConn — обёртка для connected UDP socket → PacketConn
+// connectedUDPConn wraps a connected UDP socket as a PacketConn
 type connectedUDPConn struct{ *net.UDPConn }
 
 func (c *connectedUDPConn) WriteTo(p []byte, _ net.Addr) (int, error) { return c.Write(p) }
 
-// dialTURNConn открывает сокет до TURN-сервера и оборачивает его в
-// net.PacketConn, которого ждёт turn.ClientConfig.Conn. По умолчанию — UDP
-// (как раньше). Если tcp=true, поднимает обычное TCP-соединение и
-// оборачивает его через turn.NewSTUNConn — это штатная, задокументированная
-// pion/turn возможность (см. examples/turn-client/tcp), а не самописный
-// протокол: NewSTUNConn сам разбирает STUN/ChannelData framing поверх
-// потокового TCP. Нужен на сетях (замечено на Ростелекоме), где UDP до
-// TURN-relay душится/дропается, а TCP до того же relay проходит — сравни
-// github.com/anton48/vk-turn-proxy-ios, который к той же VK/OK TURN-инфре
-// (calls.okcdn.ru) по умолчанию ходит именно через TCP.
+// dialTURNConn opens a socket to the TURN server and wraps it in the
+// net.PacketConn that turn.ClientConfig.Conn expects. UDP by default (as
+// before). If tcp=true, it opens an ordinary TCP connection and wraps it
+// with turn.NewSTUNConn — a regular, documented pion/turn feature (see
+// examples/turn-client/tcp), not a hand-rolled protocol: NewSTUNConn parses
+// the STUN/ChannelData framing over streaming TCP itself. Needed on networks
+// (seen on Rostelecom) where UDP to the TURN relay is throttled/dropped
+// while TCP to the same relay gets through — compare
+// github.com/anton48/vk-turn-proxy-ios, which reaches the same VK/OK TURN
+// infrastructure (calls.okcdn.ru) over TCP by default.
 func dialTURNConn(turnAddr string, tcp bool) (net.PacketConn, io.Closer, error) {
 	if !tcp {
 		resolved, err := net.ResolveUDPAddr("udp", turnAddr)
 		if err != nil {
-			return nil, nil, fmt.Errorf("резолв TURN: %w", err)
+			return nil, nil, fmt.Errorf("resolving TURN: %w", err)
 		}
 		c, err := net.DialUDP("udp", nil, resolved)
 		if err != nil {
-			return nil, nil, fmt.Errorf("подключение TURN UDP: %w", err)
+			return nil, nil, fmt.Errorf("connecting to TURN over UDP: %w", err)
 		}
 		_ = c.SetReadBuffer(socketBufSize)
 		_ = c.SetWriteBuffer(socketBufSize)
@@ -146,7 +146,7 @@ func dialTURNConn(turnAddr string, tcp bool) (net.PacketConn, io.Closer, error) 
 	d := net.Dialer{Timeout: 10 * time.Second}
 	c, err := d.Dial("tcp", turnAddr)
 	if err != nil {
-		return nil, nil, fmt.Errorf("подключение TURN TCP: %w", err)
+		return nil, nil, fmt.Errorf("connecting to TURN over TCP: %w", err)
 	}
 	return turn.NewSTUNConn(c), c, nil
 }
@@ -172,13 +172,13 @@ func RunSession(
 	var firstWireRead uint32
 
 	if len(creds.TurnURLs) == 0 {
-		return false, fmt.Errorf("нет TURN URL в учетных данных")
+		return false, fmt.Errorf("no TURN URL in the credentials")
 	}
 	selectedURL := creds.TurnURLs[sessionID%len(creds.TurnURLs)]
 
 	urlhost, urlport, err := net.SplitHostPort(selectedURL)
 	if err != nil {
-		return false, fmt.Errorf("разбор TURN URL %q: %w", selectedURL, err)
+		return false, fmt.Errorf("parsing TURN URL %q: %w", selectedURL, err)
 	}
 	if tp.Host != "" {
 		urlhost = tp.Host
@@ -195,9 +195,9 @@ func RunSession(
 	defer turnConnCloser.Close()
 
 	if tp.TCPTransport {
-		log.Printf("[СЕССИЯ #%d] TURN TCP (%s)", sessionID, turnAddr)
+		log.Printf("[SESSION #%d] TURN TCP (%s)", sessionID, turnAddr)
 	} else {
-		log.Printf("[СЕССИЯ #%d] TURN UDP (%s)", sessionID, turnAddr)
+		log.Printf("[SESSION #%d] TURN UDP (%s)", sessionID, turnAddr)
 	}
 
 	// RequestedAddressFamily
@@ -223,7 +223,7 @@ func RunSession(
 		LoggerFactory:          &NullLoggerFactory{},
 	})
 	if err != nil {
-		return false, fmt.Errorf("TURN клиент: %w", err)
+		return false, fmt.Errorf("TURN client: %w", err)
 	}
 	defer tc.Close()
 
@@ -231,14 +231,14 @@ func RunSession(
 		return false, fmt.Errorf("TURN Listen: %w", err)
 	}
 
-	// Глобальный rate-limit на сам момент TURN Allocate (не только на старт
-	// горутины воркера, см. workerDelay в group.go) — не более одной новой
-	// TURN-аллокации за тик по всей группе, независимо от того, сколько
-	// воркеров сейчас готовы её сделать. Без этого стаггеринг старта не
-	// спасает: на нестабильной сети (ретраи/задержки Allocate) несколько
-	// воркеров всё равно накладываются друг на друга и вместе выжигают
-	// VK-квоту (error 486) быстрее, чем должны. Тот же приём использует
-	// free-turn-proxy (internal/proxy/udprelay/loop.go, общий 200ms-тикер).
+	// A global rate limit on the moment of TURN Allocate itself (not just on
+	// the start of the worker goroutine, see workerDelay in group.go) — no more
+	// than one new TURN allocation per tick across the whole group, no matter
+	// how many workers are ready to make one. Without this the start stagger
+	// does not save us: on an unstable network (Allocate retries/delays) several
+	// workers still overlap and together burn through the VK quota (error 486)
+	// faster than they should. free-turn-proxy uses the same trick
+	// (internal/proxy/udprelay/loop.go, one shared 200ms ticker).
 	if allocateGate != nil {
 		select {
 		case <-allocateGate:
@@ -254,7 +254,7 @@ func RunSession(
 		}
 		errStr := err.Error()
 		if strings.Contains(errStr, "Quota") || strings.Contains(errStr, "486") {
-			return false, fmt.Errorf("TURN квота: %w", err)
+			return false, fmt.Errorf("TURN quota: %w", err)
 		}
 		return false, fmt.Errorf("TURN Allocate: %w", err)
 	}
@@ -263,7 +263,7 @@ func RunSession(
 	// Reset error count on successful allocation
 	getStreamCache(creds.CacheStreamID).errorCount.Store(0)
 
-	log.Printf("[СЕССИЯ #%d] Relay: %s", sessionID, relay.LocalAddr())
+	log.Printf("[SESSION #%d] Relay: %s", sessionID, relay.LocalAddr())
 
 	sessCtx, sessCancel := context.WithCancel(ctx)
 	defer sessCancel()
@@ -291,7 +291,7 @@ func RunSession(
 	var relayWg sync.WaitGroup
 
 	if useWrap && (tp.NoDTLS || tp.RawMode) {
-		// ─── Прямой режим: RTP-obfs AEAD прямо поверх TURN relay, без DTLS ───
+		// ─── Direct mode: RTP-obfs AEAD straight over the TURN relay, no DTLS ───
 		obfsCfg := NewObfsConfig(tp.ObfsMode)
 		obfsWriteState := NewObfsState()
 		activeConn = &obfsDirectConn{
@@ -301,9 +301,9 @@ func RunSession(
 			cfg:        obfsCfg,
 			writeState: obfsWriteState,
 		}
-		log.Printf("[ВОРКЕР #%d] [ПРЯМОЙ] Без DTLS, только RTP-obfs AEAD ✓", sessionID)
+		log.Printf("[WORKER #%d] [DIRECT] No DTLS, RTP-obfs AEAD only ✓", sessionID)
 	} else {
-		// ─── Классический режим: DTLS поверх RTP-obfs (обратная совместимость) ───
+		// ─── Classic mode: DTLS over RTP-obfs (backwards compatibility) ───
 		pipeA, pipeB := connutil.AsyncPacketPipe()
 		defer pipeA.Close()
 		defer pipeB.Close()
@@ -338,18 +338,18 @@ func RunSession(
 				payload := buf[:n]
 				if useWrap {
 					if !obfsIsRTPPacket(payload) {
-						log.Printf("[СЕССИЯ #%d] OBFS unwrap: unexpected packet (n=%d)", sessionID, n)
+						log.Printf("[SESSION #%d] OBFS unwrap: unexpected packet (n=%d)", sessionID, n)
 						continue
 					}
 					m, wrapErr := obfsUnwrapPacket(tp.WrapKey, payload, plain)
 					if wrapErr != nil {
-						log.Printf("[СЕССИЯ #%d] OBFS unwrap: %v (n=%d)", sessionID, wrapErr, n)
+						log.Printf("[SESSION #%d] OBFS unwrap: %v (n=%d)", sessionID, wrapErr, n)
 						continue
 					}
 					payload = plain[:m]
 				}
 				if atomic.CompareAndSwapUint32(&firstWrapUp, 0, 1) {
-					log.Printf("[СЕССИЯ #%d] [ДЕБАГ] Успешно расшифрован/получен ПЕРВЫЙ пакет от TURN Relay (%d байт)", sessionID, len(payload))
+					log.Printf("[SESSION #%d] [DEBUG] Successfully decrypted/received the FIRST packet from the TURN relay (%d bytes)", sessionID, len(payload))
 				}
 				if _, writeErr := pipeA.WriteTo(payload, peer); writeErr != nil {
 					return
@@ -372,14 +372,14 @@ func RunSession(
 					if dtlsObfsCfg != nil && obfsWriteState != nil {
 						wrapped, wrapErr := obfsWrapPacket(tp.WrapKey, out, dtlsObfsCfg, obfsWriteState)
 						if wrapErr != nil {
-							log.Printf("[СЕССИЯ #%d] OBFS wrap: %v", sessionID, wrapErr)
+							log.Printf("[SESSION #%d] OBFS wrap: %v", sessionID, wrapErr)
 							return
 						}
 						out = wrapped
 					}
 				}
 				if atomic.CompareAndSwapUint32(&firstWrapDown, 0, 1) {
-					log.Printf("[СЕССИЯ #%d] [ДЕБАГ] Успешно зашифрован/отправлен ПЕРВЫЙ пакет на TURN Relay (%d байт)", sessionID, len(out))
+					log.Printf("[SESSION #%d] [DEBUG] Successfully encrypted/sent the FIRST packet to the TURN relay (%d bytes)", sessionID, len(out))
 				}
 				if _, writeErr := relay.WriteTo(out, peer); writeErr != nil {
 					return
@@ -387,10 +387,10 @@ func RunSession(
 			}
 		}()
 
-		// DTLS с поддержкой Connection ID (без SNI)
+		// DTLS with Connection ID support (no SNI)
 		cert, err := selfsign.GenerateSelfSigned()
 		if err != nil {
-			return false, fmt.Errorf("генерация сертификата: %w", err)
+			return false, fmt.Errorf("generating the certificate: %w", err)
 		}
 
 		// Acquire handshake semaphore
@@ -413,11 +413,11 @@ func RunSession(
 		dtlsConn, err := dtls.Client(pipeB, peer, dtlsCfg)
 		if err != nil {
 			<-handshakeSem
-			return false, fmt.Errorf("DTLS клиент: %w", err)
+			return false, fmt.Errorf("DTLS client: %w", err)
 		}
 
 		hctx, hcancel := context.WithTimeout(sessCtx, 50*time.Second)
-		log.Printf("[ВОРКЕР #%d] [DTLS] Рукопожатие (Handshake)...", sessionID)
+		log.Printf("[WORKER #%d] [DTLS] Handshake...", sessionID)
 		err = dtlsConn.HandshakeContext(hctx)
 		hcancel()
 		<-handshakeSem // RELEASE SEMAPHORE IMMEDIATELY AFTER HANDSHAKE
@@ -427,12 +427,12 @@ func RunSession(
 			if useWrap {
 				errStr := strings.ToLower(err.Error())
 				if strings.Contains(errStr, "deadline") || strings.Contains(errStr, "timeout") {
-					return false, fmt.Errorf("WRAP_AUTH_TIMEOUT: DTLS timeout, пароль/WRAP не подтверждён")
+					return false, fmt.Errorf("WRAP_AUTH_TIMEOUT: DTLS timeout, the password/WRAP was not confirmed")
 				}
 			}
-			return false, fmt.Errorf("DTLS хендшейк: %w", err)
+			return false, fmt.Errorf("DTLS handshake: %w", err)
 		}
-		log.Printf("[ВОРКЕР #%d] [DTLS] Соединение установлено ✓", sessionID)
+		log.Printf("[WORKER #%d] [DTLS] Connection established ✓", sessionID)
 		activeConn = dtlsConn
 	}
 	defer activeConn.Close()
@@ -440,7 +440,7 @@ func RunSession(
 	stats.ActiveConnections.Add(1)
 	defer stats.ActiveConnections.Add(-1)
 
-	// Запрос конфига
+	// Config request
 	if getConfig && configCh != nil && tp.RawMode {
 		ip, dnsCSV, mtu, confErr := RequestRawConfig(activeConn, deviceID, password)
 		if confErr != nil {
@@ -448,19 +448,19 @@ func RunSession(
 			if strings.Contains(errStr, "FATAL_AUTH") {
 				return false, confErr
 			}
-			log.Printf("[ВОРКЕР #%d] Ошибка RAW-конфига: %v", sessionID, confErr)
+			log.Printf("[WORKER #%d] RAW config error: %v", sessionID, confErr)
 		} else if ip != "" {
 			conf := fmt.Sprintf("RAWCONF:%s|%s|%d", ip, dnsCSV, mtu)
 			select {
 			case configCh <- conf:
 				configDelivered = true
-				log.Printf("[ВОРКЕР #%d] RAW-конфиг получен (ip=%s)", sessionID, ip)
+				log.Printf("[WORKER #%d] RAW config received (ip=%s)", sessionID, ip)
 			default:
 				configDelivered = true
-				log.Printf("[ВОРКЕР #%d] RAW-конфиг уже был доставлен другим воркером", sessionID)
+				log.Printf("[WORKER #%d] The RAW config was already delivered by another worker", sessionID)
 			}
 		} else {
-			log.Printf("[ВОРКЕР #%d] Сервер ещё не назначил raw IP, повторим позже", sessionID)
+			log.Printf("[WORKER #%d] The server has not assigned a raw IP yet, retrying later", sessionID)
 		}
 	} else if getConfig && configCh != nil {
 		conf, confErr := RequestConfig(activeConn, localPort, deviceID, password)
@@ -469,28 +469,28 @@ func RunSession(
 			if strings.Contains(errStr, "FATAL_AUTH") {
 				return false, confErr
 			}
-			log.Printf("[ВОРКЕР #%d] Ошибка конфига: %v", sessionID, confErr)
+			log.Printf("[WORKER #%d] Config error: %v", sessionID, confErr)
 		} else if conf != "" {
 			select {
 			case configCh <- conf:
 				configDelivered = true
-				log.Printf("[ВОРКЕР #%d] Конфиг получен", sessionID)
+				log.Printf("[WORKER #%d] Config received", sessionID)
 			default:
 				configDelivered = true
-				log.Printf("[ВОРКЕР #%d] Конфиг уже был доставлен другим воркером", sessionID)
+				log.Printf("[WORKER #%d] The config was already delivered by another worker", sessionID)
 			}
 		} else {
-			log.Printf("[ВОРКЕР #%d] Сервер ещё не выдал WireGuard-конфиг, повторим позже", sessionID)
+			log.Printf("[WORKER #%d] The server has not issued a WireGuard config yet, retrying later", sessionID)
 		}
 	} else {
 		if authErr := SendAuth(activeConn, deviceID, password); authErr != nil {
-			log.Printf("[ВОРКЕР #%d] Ошибка авторизации: %v", sessionID, authErr)
+			log.Printf("[WORKER #%d] Authorization error: %v", sessionID, authErr)
 		}
 	}
 
-	log.Printf("[ВОРКЕР #%d] [READY] Туннель готов к работе ✓", sessionID)
+	log.Printf("[WORKER #%d] [READY] The tunnel is ready ✓", sessionID)
 
-	// Регистрация в диспетчере
+	// Register with the dispatcher
 	slot := &WorkerSlot{
 		ID:     sessionID,
 		SendCh: make(chan []byte, workerSendBuf),
@@ -509,12 +509,12 @@ func RunSession(
 	defer stopConn()
 
 	if tp.RawMode {
-		// Транспорт — UDP через TURN, у сервера нет способа узнать о разрыве
-		// соединения кроме таймаута (см. handleConnRaw). Явно сообщаем о
-		// намеренном отключении, чтобы сервер сразу освободил слот в
-		// rawRouter вместо того чтобы ждать простоя — иначе "мёртвые"
-		// соединения от прошлого сеанса засоряют round-robin в downlinkLoop
-		// при быстром переподключении того же устройства.
+		// The transport is UDP over TURN, so the server has no way of learning
+		// that the connection broke other than a timeout (see handleConnRaw). Say
+		// explicitly that the disconnect was deliberate, so the server frees the
+		// slot in rawRouter at once instead of waiting for idleness — otherwise
+		// "dead" connections from the previous session clutter the round-robin in
+		// downlinkLoop when the same device reconnects quickly.
 		go func() {
 			select {
 			case <-ctx.Done():
@@ -526,10 +526,10 @@ func RunSession(
 	}
 
 	// Keepalive: prevents TURN allocation timeout and idle disconnect.
-	// Пакет не пишется напрямую в activeConn (это была бы вторая горутина,
-	// конкурирующая за conn с основным Writer'ом ниже) — кладётся в
-	// slot.PrioCh неблокирующе, тем же путём, что и мелкие ACK-пакеты, и
-	// уходит через единственную writer-горутину.
+	// The packet is not written straight to activeConn (that would be a second
+	// goroutine competing for the conn with the main Writer below) — it goes
+	// into slot.PrioCh without blocking, by the same path as small ACK packets,
+	// and leaves through the single writer goroutine.
 	go func() {
 		defer proxyWg.Done()
 		t := time.NewTicker(keepaliveInterval)
@@ -559,9 +559,9 @@ func RunSession(
 		}
 	}()
 
-	// Writer: dispatcher → activeConn. PrioCh (мелкие пакеты/ACK) всегда
-	// проверяется первым, минуя SendCh с обычными данными — иначе ACK может
-	// простоять в очереди за большим chunk'ом данных.
+	// Writer: dispatcher → activeConn. PrioCh (small packets/ACKs) is always
+	// checked first, ahead of SendCh with ordinary data — otherwise an ACK can
+	// sit in the queue behind a large chunk of data.
 	go func() {
 		defer proxyWg.Done()
 		defer sessCancel()
@@ -600,20 +600,20 @@ func RunSession(
 			if !ok {
 				return
 			}
-			// 3с, не sessionReadTimeout (30 мин). Запись пишет в
-			// UDP-сокет к TURN relay, а не читает долгоживущее соединение;
-			// 30-минутный дедлайн означал, что зависшая запись (переполненный
-			// сокет-буфер ОС, плохая сеть) держала бы Writer колом полчаса,
-			// пока очередь SendCh/PrioCh этого воркера копится и/или дропается
-			// диспетчером выше (см. readLoop в dispatcher.go).
+			// 3s, not sessionReadTimeout (30 min). The write goes into a
+			// UDP socket to the TURN relay rather than reading a long-lived
+			// connection; a 30-minute deadline meant a stuck write (a full OS
+			// socket buffer, a bad network) would hold the Writer for half an hour
+			// while this worker's SendCh/PrioCh queue piles up and/or is dropped
+			// by the dispatcher above (see readLoop in dispatcher.go).
 			_ = activeConn.SetWriteDeadline(time.Now().Add(3 * time.Second))
 			if atomic.CompareAndSwapUint32(&firstWireWrite, 0, 1) {
-				log.Printf("[ВОРКЕР #%d] [ДЕБАГ] Отправлен ПЕРВЫЙ пакет в соединение (%d байт)", sessionID, len(pkt))
+				log.Printf("[WORKER #%d] [DEBUG] Sent the FIRST packet into the connection (%d bytes)", sessionID, len(pkt))
 			}
 			_, writeErr := activeConn.Write(pkt)
 			putPktBuf(pkt)
 			if writeErr != nil {
-				log.Printf("[ВОРКЕР #%d] Ошибка Writer: %v", sessionID, writeErr)
+				log.Printf("[WORKER #%d] Writer error: %v", sessionID, writeErr)
 				return
 			}
 		}
@@ -634,7 +634,7 @@ func RunSession(
 				if ne, ok := readErr.(net.Error); ok && ne.Timeout() {
 					continue
 				}
-				log.Printf("[ВОРКЕР #%d] Ошибка Reader: %v", sessionID, readErr)
+				log.Printf("[WORKER #%d] Reader error: %v", sessionID, readErr)
 				return
 			}
 
@@ -644,7 +644,7 @@ func RunSession(
 			}
 
 			if atomic.CompareAndSwapUint32(&firstWireRead, 0, 1) {
-				log.Printf("[ВОРКЕР #%d] [ДЕБАГ] Получен ПЕРВЫЙ пакет из соединения (%d байт)", sessionID, n)
+				log.Printf("[WORKER #%d] [DEBUG] Received the FIRST packet from the connection (%d bytes)", sessionID, n)
 			}
 
 			pkt := getPktBuf(n)
@@ -655,16 +655,16 @@ func RunSession(
 				putPktBuf(pkt)
 				return
 			default:
-				// ReturnCh полон — пакет дропается, но эта горутина не
-				// блокируется. Раньше здесь не было default: если writeLoop
-				// не успевал разгружать ReturnCh (например TUN.Write тормозит
-				// на конкретном устройстве), Reader вставал колом на этом
-				// select и переставал читать activeConn.Read() вообще — то
-				// есть новые пакеты от сервера (включая реальные ответы на
-				// пользовательский трафик) переставали вычитываться из
-				// UDP-сокета ОС и терялись там, а не здесь. Один раз
-				// заполнившийся канал убивал весь дальнейший приём для этого
-				// воркера — select должен быть неблокирующим.
+				// ReturnCh is full — the packet is dropped, but this goroutine
+				// does not block. There used to be no default here: if writeLoop
+				// could not drain ReturnCh fast enough (say TUN.Write is slow on
+				// a particular device), the Reader would wedge on this select
+				// and stop reading activeConn.Read() altogether — that is, new
+				// packets from the server (including real answers to user
+				// traffic) stopped being drained from the OS UDP socket and were
+				// lost there, not here. Once the channel filled up it killed all
+				// further receive for that worker — the select has to be
+				// non-blocking.
 				putPktBuf(pkt)
 			}
 		}
@@ -674,7 +674,7 @@ func RunSession(
 	sessCancel()
 	relayWg.Wait()
 	sessionWg.Wait()
-	log.Printf("[СЕССИЯ #%d] Завершена", sessionID)
+	log.Printf("[SESSION #%d] Finished", sessionID)
 	return configDelivered, nil
 }
 
@@ -687,7 +687,7 @@ func RunPing(
 	startPing := time.Now()
 
 	if len(creds.TurnURLs) == 0 {
-		return 0, fmt.Errorf("нет TURN URL")
+		return 0, fmt.Errorf("no TURN URL")
 	}
 	selectedURL := creds.TurnURLs[0]
 

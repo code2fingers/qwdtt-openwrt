@@ -39,7 +39,7 @@ func LoadProfileFromDisk() (*SavedProfile, error) {
 	return &sp, nil
 }
 
-// rotateCaptchaBrowserFP — полная ротация профиля капчи (fp + UA + device_json).
+// rotateCaptchaBrowserFP — full rotation of the captcha profile (fp + UA + device_json).
 func rotateCaptchaBrowserFP() (*SavedProfile, error) {
 	return rotateCaptchaProfile()
 }
@@ -66,7 +66,7 @@ func rotateCaptchaProfile() (*SavedProfile, error) {
 	if err := os.WriteFile(captchaBrowserFpFile, []byte(fp), 0644); err != nil {
 		return nil, err
 	}
-	log.Printf("[КАПЧА] captcha profile rotated (fp=%s...)", fp[:8])
+	log.Printf("[CAPTCHA] captcha profile rotated (fp=%s...)", fp[:8])
 	return sp, nil
 }
 

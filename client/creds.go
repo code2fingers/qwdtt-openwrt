@@ -374,7 +374,7 @@ func getTokenChain(ctx context.Context, link string, streamID int, creds VKCrede
 	profile := getRandomProfile()
 	if saved, err := LoadProfileFromDisk(); err == nil && saved != nil && strings.TrimSpace(saved.UserAgent) != "" {
 		profile = saved.Profile
-		log.Printf("[STREAM %d] [VK Auth] Используем профиль устройства из vk_profile.json", streamID)
+		log.Printf("[STREAM %d] [VK Auth] Using the device profile from vk_profile.json", streamID)
 	}
 
 	client, err := tlsclient.NewHttpClient(tlsclient.NewNoopLogger(),
@@ -497,7 +497,7 @@ func getTokenChain(ctx context.Context, link string, streamID int, creds VKCrede
 				successToken, solveErr := solveCaptchaBySelectedMode(ctx, streamID, attempt+1, captchaErr, client, profile, savedProfile)
 				if solveErr != nil {
 					if errors.Is(solveErr, errCaptchaSessionExpired) {
-						log.Printf("[STREAM %d] [КАПЧА] сессия исчерпана — запрос новой капчи у VK", streamID)
+						log.Printf("[STREAM %d] [CAPTCHA] session exhausted — requesting a new captcha from VK", streamID)
 						savedProfile, _ = LoadProfileFromDisk()
 						data = originalData
 						vkDelayRandom(800, 1500)
@@ -594,9 +594,9 @@ func getTokenChain(ctx context.Context, link string, streamID int, creds VKCrede
 
 func markCaptchaSessionExpired(streamID int) error {
 	if _, err := rotateCaptchaBrowserFP(); err != nil {
-		log.Printf("[STREAM %d] [КАПЧА] не удалось обновить browser_fp: %v", streamID, err)
+		log.Printf("[STREAM %d] [CAPTCHA] could not refresh browser_fp: %v", streamID, err)
 	} else {
-		log.Printf("[STREAM %d] [КАПЧА] browser_fp обновлён после исчерпания сессии", streamID)
+		log.Printf("[STREAM %d] [CAPTCHA] browser_fp refreshed after the session was exhausted", streamID)
 	}
 	return errCaptchaSessionExpired
 }
@@ -613,15 +613,15 @@ func solveCaptchaBySelectedMode(
 	if fresh, err := rotateCaptchaProfile(); err == nil {
 		savedProfile = fresh
 	} else {
-		log.Printf("[STREAM %d] [КАПЧА] profile rotate failed: %v", streamID, err)
+		log.Printf("[STREAM %d] [CAPTCHA] profile rotate failed: %v", streamID, err)
 	}
 
 	switch getCaptchaMode() {
 	case "wv":
-		log.Printf("[STREAM %d] [КАПЧА] WBV: режим из настроек Android (attempt %d)", streamID, attempt)
+		log.Printf("[STREAM %d] [CAPTCHA] WBV: mode from the Android settings (attempt %d)", streamID, attempt)
 		return requestWebViewCaptcha(streamID, captchaErr, "selected", captchaSelectedWebViewTimeout)
 	case "rjs":
-		log.Printf("[STREAM %d] [КАПЧА] RJS: Go v2 выбран в настройках (attempt %d)", streamID, attempt)
+		log.Printf("[STREAM %d] [CAPTCHA] RJS: Go v2 selected in the settings (attempt %d)", streamID, attempt)
 		token, solveErr := solveVkCaptchaV2Attempts(ctx, captchaErr, client, profile, savedProfile, 2)
 		if solveErr == nil {
 			return token, nil
@@ -630,22 +630,22 @@ func solveCaptchaBySelectedMode(
 			return "", solveErr
 		}
 		if isCaptchaSessionDead(solveErr) {
-			log.Printf("[STREAM %d] [КАПЧА] RJS: сессия капчи мёртва, запрашиваем новую у VK", streamID)
+			log.Printf("[STREAM %d] [CAPTCHA] RJS: the captcha session is dead, requesting a new one from VK", streamID)
 			return "", markCaptchaSessionExpired(streamID)
 		}
 		if isCaptchaSessionExhausted(solveErr) {
-			log.Printf("[STREAM %d] [КАПЧА] RJS: rate limit, fallback на WBV Auto", streamID)
+			log.Printf("[STREAM %d] [CAPTCHA] RJS: rate limit, falling back to WBV Auto", streamID)
 			return requestWebViewCaptcha(streamID, captchaErr, "auto", captchaAutoWebViewTimeout)
 		}
-		log.Printf("[STREAM %d] [КАПЧА] RJS: ошибка, fallback на WBV Auto: %v", streamID, solveErr)
+		log.Printf("[STREAM %d] [CAPTCHA] RJS: error, falling back to WBV Auto: %v", streamID, solveErr)
 		return requestWebViewCaptcha(streamID, captchaErr, "auto", captchaAutoWebViewTimeout)
 	}
 
-	log.Printf("[STREAM %d] [КАПЧА] AUTO: старт цепочки (captcha attempt %d)", streamID, attempt)
+	log.Printf("[STREAM %d] [CAPTCHA] AUTO: starting the chain (captcha attempt %d)", streamID, attempt)
 
 	token, solveErr := solveVkCaptchaV2Attempts(ctx, captchaErr, client, profile, savedProfile, 2)
 	if solveErr == nil {
-		log.Printf("[STREAM %d] [КАПЧА] AUTO: Go v2 решил капчу", streamID)
+		log.Printf("[STREAM %d] [CAPTCHA] AUTO: Go v2 solved the captcha", streamID)
 		return token, nil
 	}
 	if ctx.Err() != nil {
@@ -653,19 +653,19 @@ func solveCaptchaBySelectedMode(
 	}
 	lastErr := solveErr
 	if isCaptchaSessionDead(solveErr) {
-		log.Printf("[STREAM %d] [КАПЧА] AUTO: сессия капчи мёртва, запрашиваем новую у VK", streamID)
+		log.Printf("[STREAM %d] [CAPTCHA] AUTO: the captcha session is dead, requesting a new one from VK", streamID)
 		return "", markCaptchaSessionExpired(streamID)
 	}
 	if errors.Is(solveErr, errCaptchaV2RateLimit) || strings.Contains(strings.ToLower(solveErr.Error()), "rate limit") {
-		log.Printf("[STREAM %d] [КАПЧА] AUTO: rate limit на Go v2, пробуем WBV", streamID)
+		log.Printf("[STREAM %d] [CAPTCHA] AUTO: rate limit on Go v2, trying WBV", streamID)
 	}
-	log.Printf("[STREAM %d] [КАПЧА] AUTO: Go v2 не решил за 2 попытки: %v", streamID, solveErr)
+	log.Printf("[STREAM %d] [CAPTCHA] AUTO: Go v2 did not solve it in 2 attempts: %v", streamID, solveErr)
 
 	for wbvAttempt := 1; wbvAttempt <= 2; wbvAttempt++ {
-		log.Printf("[STREAM %d] [КАПЧА] AUTO: WBV Auto попытка %d/2 (timeout %s)", streamID, wbvAttempt, captchaAutoWebViewTimeout)
+		log.Printf("[STREAM %d] [CAPTCHA] AUTO: WBV Auto attempt %d/2 (timeout %s)", streamID, wbvAttempt, captchaAutoWebViewTimeout)
 		token, solveErr = requestWebViewCaptcha(streamID, captchaErr, "auto", captchaAutoWebViewTimeout)
 		if solveErr == nil {
-			log.Printf("[STREAM %d] [КАПЧА] AUTO: WBV Auto решил капчу", streamID)
+			log.Printf("[STREAM %d] [CAPTCHA] AUTO: WBV Auto solved the captcha", streamID)
 			return token, nil
 		}
 		if ctx.Err() != nil {
@@ -673,9 +673,9 @@ func solveCaptchaBySelectedMode(
 		}
 		lastErr = solveErr
 		if isWebViewCaptchaTimeout(solveErr) {
-			log.Printf("[STREAM %d] [КАПЧА] AUTO: WBV Auto timeout %d/2", streamID, wbvAttempt)
+			log.Printf("[STREAM %d] [CAPTCHA] AUTO: WBV Auto timeout %d/2", streamID, wbvAttempt)
 		} else {
-			log.Printf("[STREAM %d] [КАПЧА] AUTO: WBV Auto ошибка %d/2: %v", streamID, wbvAttempt, solveErr)
+			log.Printf("[STREAM %d] [CAPTCHA] AUTO: WBV Auto error %d/2: %v", streamID, wbvAttempt, solveErr)
 		}
 
 		timer := time.NewTimer(time.Duration(250+rand.Intn(250)) * time.Millisecond)
@@ -687,22 +687,22 @@ func solveCaptchaBySelectedMode(
 		}
 	}
 
-	log.Printf("[STREAM %d] [КАПЧА] AUTO: финальная Go v2 попытка после WBV", streamID)
+	log.Printf("[STREAM %d] [CAPTCHA] AUTO: final Go v2 attempt after WBV", streamID)
 	token, solveErr = solveVkCaptchaV2Attempts(ctx, captchaErr, client, profile, savedProfile, 1)
 	if solveErr == nil {
-		log.Printf("[STREAM %d] [КАПЧА] AUTO: финальная Go v2 решила капчу", streamID)
+		log.Printf("[STREAM %d] [CAPTCHA] AUTO: the final Go v2 attempt solved the captcha", streamID)
 		return token, nil
 	}
 	if ctx.Err() != nil {
 		return "", solveErr
 	}
 	lastErr = solveErr
-	log.Printf("[STREAM %d] [КАПЧА] AUTO: финальная Go v2 ошибка: %v", streamID, solveErr)
+	log.Printf("[STREAM %d] [CAPTCHA] AUTO: final Go v2 error: %v", streamID, solveErr)
 
-	log.Printf("[STREAM %d] [КАПЧА] AUTO: автоцепочка не прошла, открыт ручной WebView", streamID)
+	log.Printf("[STREAM %d] [CAPTCHA] AUTO: the automatic chain failed, opening the manual WebView", streamID)
 	token, solveErr = requestWebViewCaptcha(streamID, captchaErr, "manual", captchaManualWebViewTimeout)
 	if solveErr == nil {
-		log.Printf("[STREAM %d] [КАПЧА] AUTO: ручной WebView решил капчу", streamID)
+		log.Printf("[STREAM %d] [CAPTCHA] AUTO: the manual WebView solved the captcha", streamID)
 		return token, nil
 	}
 	if lastErr != nil {
@@ -742,7 +742,7 @@ func requestWebViewCaptcha(streamID int, captchaErr *VkCaptchaError, mode string
 		if strings.HasPrefix(lowerResult, "error:") {
 			return "", fmt.Errorf("webview captcha failed: %s", result)
 		}
-		log.Printf("[STREAM %d] [КАПЧА] WBV: %s solve succeeded", streamID, mode)
+		log.Printf("[STREAM %d] [CAPTCHA] WBV: %s solve succeeded", streamID, mode)
 		return result, nil
 	case <-waitCtx.Done():
 		return "", fmt.Errorf("webview captcha timed out")
@@ -823,10 +823,10 @@ func goDNSServersForArg(arg string) []string {
 func goDNSLabel(arg string) string {
 	arg = strings.TrimSpace(arg)
 	if strings.HasPrefix(arg, "custom:") {
-		return "Свой DNS"
+		return "Custom DNS"
 	}
 	if strings.HasPrefix(arg, "doh:") {
-		return "Свой DoH"
+		return "Custom DoH"
 	}
 	switch strings.ToLower(arg) {
 	case "cloudflare":
@@ -838,9 +838,9 @@ func goDNSLabel(arg string) string {
 	case "doh-google":
 		return "Google DoH"
 	case "doh-yandex":
-		return "Яндекс DoH"
+		return "Yandex DoH"
 	default:
-		return "Яндекс DNS"
+		return "Yandex DNS"
 	}
 }
 
@@ -874,7 +874,7 @@ func setupGlobalResolver(arg string) {
 	}
 	servers := goDNSServersForArg(arg)
 	log.Printf(
-		"[КЛИЕНТ] DNS для VK: %s (%s) — UDP/TCP :53",
+		"[CLIENT] DNS for VK: %s (%s) — UDP/TCP :53",
 		goDNSLabel(arg),
 		formatGoDNSServers(servers),
 	)

@@ -32,7 +32,7 @@ func (s *Stats) RunLoop(shutdown <-chan struct{}) {
 			upMB := float64(up) / (1024.0 * 1024.0)
 			downMB := float64(down) / (1024.0 * 1024.0)
 
-			log.Printf("[СТАТИСТИКА] Активных: %d | Трафик: %.2f МБ | ↓%.2f МБ / ↑%.2f МБ", active, totalMB, downMB, upMB)
+			log.Printf("[STATS] Active: %d | Traffic: %.2f MB | down %.2f MB / up %.2f MB", active, totalMB, downMB, upMB)
 		}
 	}
 }

@@ -8,20 +8,20 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// recvTunFD слушает unix-сокет sockPath и получает ровно один файловый
-// дескриптор, переданный Android-стороной через SCM_RIGHTS (см.
-// LocalSocket.setFileDescriptorsForSend в TunFdBridge.kt). Нужен, потому что
-// go_client — отдельный OS-процесс (не JNI/in-process), поэтому TUN, который
-// Android создаёт через VpnService.Builder().establish(), нельзя передать
-// иначе как через межпроцессную передачу дескриптора.
+// recvTunFD listens on the unix socket sockPath and receives exactly one
+// file descriptor, passed by the Android side through SCM_RIGHTS (see
+// LocalSocket.setFileDescriptorsForSend in TunFdBridge.kt). Needed because
+// go_client is a separate OS process (not JNI/in-process), so the TUN that
+// Android creates through VpnService.Builder().establish() cannot be handed
+// over except by passing the descriptor between processes.
 //
-// go_client — сервер (слушает), Android — клиент (подключается после
-// establish()), а не наоборот. Раньше было наоборот (Android слушал,
-// go_client дозванивался Dial-ом с ретраями) — это создавало гонку: go_client
-// стартует раньше Android успевает поднять TUN и создать LocalServerSocket,
-// первая попытка почти всегда получала connection refused. Инверсия убирает
-// гонку полностью — go_client уже слушает задолго до того, как Android вообще
-// начнёт establish().
+// go_client is the server (it listens) and Android is the client (it
+// connects after establish()), not the other way round. It used to be
+// reversed (Android listened, go_client dialled with retries) — that
+// created a race: go_client starts before Android can bring the TUN up and
+// create the LocalServerSocket, so the first attempt almost always got
+// connection refused. Inverting it removes the race entirely — go_client is
+// already listening long before Android even begins establish().
 func recvTunFD(sockPath string) (*os.File, error) {
 	rawDiagf("recvTunFD: listen unix %q", sockPath)
 	addr, err := net.ResolveUnixAddr("unix", sockPath)
@@ -61,7 +61,7 @@ func recvTunFD(sockPath string) (*os.File, error) {
 	}
 	if len(scms) == 0 {
 		rawDiagf("recvTunFD: 0 control messages received")
-		return nil, fmt.Errorf("tun-fd-sock: контрольное сообщение не получено")
+		return nil, fmt.Errorf("tun-fd-sock: no control message received")
 	}
 	fds, err := unix.ParseUnixRights(&scms[0])
 	if err != nil {
@@ -70,7 +70,7 @@ func recvTunFD(sockPath string) (*os.File, error) {
 	}
 	if len(fds) == 0 {
 		rawDiagf("recvTunFD: 0 fds in rights message")
-		return nil, fmt.Errorf("tun-fd-sock: fd не получен")
+		return nil, fmt.Errorf("tun-fd-sock: no fd received")
 	}
 
 	rawDiagf("recvTunFD: received fd=%d", fds[0])

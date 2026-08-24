@@ -144,7 +144,7 @@ func newDoHBootstrapDialer() *net.Dialer {
 		Timeout:   5 * time.Second,
 		KeepAlive: 30 * time.Second,
 		Resolver: &net.Resolver{
-			PreferGo: false, // системный DNS, не DoH — иначе рекурсия
+			PreferGo: false, // system DNS, not DoH — otherwise recursion
 		},
 	}
 }
@@ -316,7 +316,7 @@ func setupDoHResolver(arg string, endpoints []string) {
 	client := newDoHHTTPClient()
 
 	log.Printf(
-		"[КЛИЕНТ] DNS для VK: %s (%s) — DoH",
+		"[CLIENT] DNS for VK: %s (%s) — DoH",
 		goDNSLabel(arg),
 		formatDoHEndpoints(endpoints),
 	)

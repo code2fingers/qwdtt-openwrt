@@ -17,7 +17,7 @@ import (
 	"time"
 )
 
-// CaptchaResultChan — канал для получения токена капчи из внешнего решателя (WebView)
+// CaptchaResultChan carries the captcha token from an external solver (WebView)
 var CaptchaResultChan = make(chan string, 1)
 
 var captchaModeValue atomic.Value
@@ -49,7 +49,7 @@ func getCaptchaMode() string {
 	return mode
 }
 
-// drainCaptchaResult удаляет устаревший результат капчи из канала
+// drainCaptchaResult removes a stale captcha result from the channel
 func drainCaptchaResult() {
 	select {
 	case <-CaptchaResultChan:
@@ -58,7 +58,7 @@ func drainCaptchaResult() {
 }
 
 func runHashChecks(ctx context.Context, hashes []string) {
-	log.Printf("[CHECK] Проверка VK-хешей: %d", len(hashes))
+	log.Printf("[CHECK] Checking VK hashes: %d", len(hashes))
 	for i, hash := range hashes {
 		fmt.Printf("HASH_CHECK_START|%d|%s\n", i+1, hash)
 		checkCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
@@ -81,17 +81,17 @@ func classifyHashCheckError(err error) (string, string) {
 	text := strings.ToLower(err.Error())
 	switch {
 	case strings.Contains(text, "captcha_required") || strings.Contains(text, "captcha_wait_required"):
-		return "captcha", "VK просит капчу"
+		return "captcha", "VK is asking for a captcha"
 	case strings.Contains(text, "call not found") ||
 		strings.Contains(text, "joinconversationbylink") ||
 		strings.Contains(text, "missing turn_server") ||
 		strings.Contains(text, "9000") ||
 		strings.Contains(text, "callunavailable"):
-		return "dead", "Звонок не найден или закрыт"
+		return "dead", "the call was not found, or is closed"
 	case strings.Contains(text, "flood") || strings.Contains(text, "rate limit") || strings.Contains(text, "error_code:29"):
-		return "limited", "VK временно ограничил запросы"
+		return "limited", "VK is rate-limiting requests"
 	case strings.Contains(text, "timeout") || strings.Contains(text, "deadline") || strings.Contains(text, "lookup") || strings.Contains(text, "network"):
-		return "network", "Сетевая ошибка"
+		return "network", "network error"
 	default:
 		return "error", err.Error()
 	}
@@ -112,26 +112,26 @@ func main() {
 	configPath := configPathFromArgs(os.Args[1:])
 	fileConfig, err := loadClientFileConfig(configPath)
 	if err != nil {
-		log.Fatalf("[КЛИЕНТ] Ошибка конфига: %v", err)
+		log.Fatalf("[CLIENT] Config error: %v", err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Сигналы
+	// Signals
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT)
 	go func() {
 		select {
 		case s := <-sig:
-			log.Printf("[КЛИЕНТ] Сигнал %v, завершаю...", s)
+			log.Printf("[CLIENT] Signal %v, shutting down...", s)
 			cancel()
 		case <-ctx.Done():
 			return
 		}
 		select {
 		case s := <-sig:
-			log.Printf("[КЛИЕНТ] Повторный %v, принудительный выход", s)
+			log.Printf("[CLIENT] %v again, forcing an exit", s)
 			os.Exit(1)
 		case <-ctx.Done():
 		}
@@ -139,7 +139,7 @@ func main() {
 
 	var pauseFlag int32
 
-	// STDIN для PAUSE/RESUME/STOP и CAPTCHA_RESULT
+	// STDIN for PAUSE/RESUME/STOP and CAPTCHA_RESULT
 	go func() {
 		scanner := bufio.NewScanner(os.Stdin)
 		for scanner.Scan() {
@@ -159,25 +159,25 @@ func main() {
 				result := strings.TrimPrefix(line, "CAPTCHA_RESULT|")
 				drainCaptchaResult()
 				CaptchaResultChan <- result
-				log.Printf("[КАПЧА] Результат от Kotlin записан в канал")
+				log.Printf("[CAPTCHA] The result from Kotlin was written to the channel")
 			case strings.HasPrefix(line, "TURN_CREDS|"):
 				handleTurnCredsStdinLine(line)
 			}
 		}
 	}()
 
-	flag.String("config", configPath, "JSON конфиг клиента")
-	host := flag.String("turn", "", "переопределить IP TURN")
-	port := flag.String("port", "", "переопределить порт TURN")
-	listen := flag.String("listen", "127.0.0.1:9000", "локальный адрес")
-	vkHash := flag.String("vk", fileConfig.hashesCSV(), "хеши VK-звонков (через запятую)")
-	peerAddr := flag.String("peer", fileConfig.Peer, "адрес:порт VPS сервера")
+	flag.String("config", configPath, "client JSON config")
+	host := flag.String("turn", "", "override the TURN IP")
+	port := flag.String("port", "", "override the TURN port")
+	listen := flag.String("listen", "127.0.0.1:9000", "local address")
+	vkHash := flag.String("vk", fileConfig.hashesCSV(), "VK call hashes (comma-separated)")
+	peerAddr := flag.String("peer", fileConfig.Peer, "address:port of the VPS server")
 	workersDefault := fileConfig.Workers
 	if workersDefault == 0 {
 		workersDefault = 9
 	}
-	numW := flag.Int("n", workersDefault, "количество воркеров")
-	pingOnly := flag.Bool("ping-only", false, "запустить только замер задержки и выйти")
+	numW := flag.Int("n", workersDefault, "number of workers")
+	pingOnly := flag.Bool("ping-only", false, "only measure latency, then exit")
 
 	deviceIDDefault := fileConfig.DeviceID
 	if deviceIDDefault == "" {
@@ -186,47 +186,47 @@ func main() {
 			deviceIDDefault = "openwrt"
 		}
 	}
-	deviceID := flag.String("device-id", deviceIDDefault, "уникальный ID устройства")
-	connPassword := flag.String("password", fileConfig.Password, "пароль подключения")
+	deviceID := flag.String("device-id", deviceIDDefault, "unique device ID")
+	connPassword := flag.String("password", fileConfig.Password, "connection password")
 	captchaModeDefault := fileConfig.CaptchaMode
 	if captchaModeDefault == "" {
 		captchaModeDefault = "auto"
 	}
-	captchaMode := flag.String("captcha-mode", captchaModeDefault, "режим обхода капчи (auto/wv/rjs)")
+	captchaMode := flag.String("captcha-mode", captchaModeDefault, "captcha bypass mode (auto/wv/rjs)")
 	vkAuthDefault := fileConfig.VKAuth
 	if vkAuthDefault == "" {
 		vkAuthDefault = "anonymous"
 	}
-	vkAuthMode := flag.String("vk-auth", vkAuthDefault, "режим VK авторизации (account/anonymous)")
+	vkAuthMode := flag.String("vk-auth", vkAuthDefault, "VK authorization mode (account/anonymous)")
 	vkAnonPathDefault := fileConfig.VKAnonPath
 	if vkAnonPathDefault == "" {
 		vkAnonPathDefault = "vkcalls"
 	}
-	vkAnonPath := flag.String("vk-anon-path", vkAnonPathDefault, "анонимный путь VK TURN (vkcalls/legacy)")
-	vkCredsFile := flag.String("vk-creds-file", "", "файл с TURN кредами от аккаунта VK")
+	vkAnonPath := flag.String("vk-anon-path", vkAnonPathDefault, "anonymous VK TURN path (vkcalls/legacy)")
+	vkCredsFile := flag.String("vk-creds-file", "", "file with TURN credentials from a VK account")
 	dnsDefault := fileConfig.DNS
 	if dnsDefault == "" {
 		dnsDefault = "yandex"
 	}
-	goDNS := flag.String("go-dns", dnsDefault, "DNS для VK (yandex/cloudflare/google, doh-yandex/doh-cloudflare/doh-google, custom:IP или doh:URL)")
+	goDNS := flag.String("go-dns", dnsDefault, "DNS for VK (yandex/cloudflare/google, doh-yandex/doh-cloudflare/doh-google, custom:IP or doh:URL)")
 	obfsDefault := fileConfig.Obfs
 	if obfsDefault == "" {
 		obfsDefault = "audio"
 	}
-	obfsMode := flag.String("obfs", obfsDefault, "режим обфускации (audio/video)")
-	checkHashes := flag.Bool("check-hashes", false, "проверить VK-хеши и выйти")
+	obfsMode := flag.String("obfs", obfsDefault, "obfuscation mode (audio/video)")
+	checkHashes := flag.Bool("check-hashes", false, "check the VK hashes, then exit")
 	modeDefault := "vpn"
 	if configPath != "" {
 		modeDefault = "rawtun"
 	}
-	connMode := flag.String("mode", modeDefault, "режим клиента (vpn|socks|rawtun)")
-	socksAddr := flag.String("socks", "127.0.0.1:1080", "локальный SOCKS5 (только -mode socks)")
-	socksAuth := flag.Bool("socks-auth", false, "требовать логин и пароль SOCKS5")
-	socksUser := flag.String("socks-user", "", "логин SOCKS5")
-	socksPass := flag.String("socks-pass", "", "пароль SOCKS5")
-	noDTLS := flag.Bool("notls", fileConfig.NoDTLS, "прямой режим: RTP-obfs AEAD без DTLS поверх TURN (нужен сервер с -listen-direct)")
-	turnTCP := flag.Bool("turn-tcp", fileConfig.TurnTCP, "соединяться с TURN-relay по TCP вместо UDP (обход UDP-душения на некоторых сетях, напр. Ростелеком)")
-	tunFdSock := flag.String("tun-fd-sock", "", "unix-сокет для получения TUN fd от Android (только -mode rawtun)")
+	connMode := flag.String("mode", modeDefault, "client mode (vpn|socks|rawtun)")
+	socksAddr := flag.String("socks", "127.0.0.1:1080", "local SOCKS5 (only with -mode socks)")
+	socksAuth := flag.Bool("socks-auth", false, "require a SOCKS5 username and password")
+	socksUser := flag.String("socks-user", "", "SOCKS5 username")
+	socksPass := flag.String("socks-pass", "", "SOCKS5 password")
+	noDTLS := flag.Bool("notls", fileConfig.NoDTLS, "direct mode: RTP-obfs AEAD without DTLS over TURN (needs a server with -listen-direct)")
+	turnTCP := flag.Bool("turn-tcp", fileConfig.TurnTCP, "connect to the TURN relay over TCP instead of UDP (works around UDP throttling on some networks, e.g. Rostelecom)")
+	tunFdSock := flag.String("tun-fd-sock", "", "unix socket for receiving the TUN fd from Android (only with -mode rawtun)")
 	tunName := flag.String("tun-name", fileConfig.TunName, "Linux/OpenWrt TUN interface name")
 	lanInterface := flag.String("lan-interface", fileConfig.LANInterface, "OpenWrt LAN interface routed through RAW TUN")
 	rawTunSelfTest := flag.String("rawtun-self-test", "", "create a temporary OpenWrt RAW TUN with this IPv4 address")
@@ -238,13 +238,13 @@ func main() {
 		if testErr != nil {
 			log.Fatalf("[RAW SELF-TEST] %v", testErr)
 		}
-		log.Printf("[RAW SELF-TEST] TUN %s поднят на %s", tun.name, *rawTunSelfTest)
+		log.Printf("[RAW SELF-TEST] TUN %s is up on %s", tun.name, *rawTunSelfTest)
 		select {
 		case <-ctx.Done():
 		case <-time.After(*rawTunSelfTestDuration):
 		}
 		tun.cleanup()
-		log.Printf("[RAW SELF-TEST] успешно")
+		log.Printf("[RAW SELF-TEST] success")
 		return
 	}
 	activeConnMode := strings.ToLower(strings.TrimSpace(*connMode))
@@ -253,10 +253,10 @@ func main() {
 	}
 	if activeConnMode == "socks" && *socksAuth {
 		if *socksUser == "" || *socksPass == "" {
-			log.Fatal("[SOCKS] Для авторизации нужны логин и пароль")
+			log.Fatal("[SOCKS] Authorization needs a username and a password")
 		}
 		if len([]byte(*socksUser)) > 255 || len([]byte(*socksPass)) > 255 {
-			log.Fatal("[SOCKS] Логин и пароль должны быть не длиннее 255 байт")
+			log.Fatal("[SOCKS] The username and password must be at most 255 bytes")
 		}
 	}
 	setupGlobalResolver(*goDNS)
@@ -265,52 +265,52 @@ func main() {
 	activeVkAnonPath := setVkAnonPath(*vkAnonPath)
 
 	if err := loadVkCredsFile(*vkCredsFile); err != nil {
-		log.Fatalf("[КЛИЕНТ] Ошибка чтения vk-creds-file: %v", err)
+		log.Fatalf("[CLIENT] Error reading vk-creds-file: %v", err)
 	}
 
 	hashes := ParseHashes(*vkHash)
 	if *checkHashes {
 		if len(hashes) == 0 {
-			log.Fatal("[CHECK] Нужен -vk со списком хешей")
+			log.Fatal("[CHECK] -vk with a list of hashes is required")
 		}
-		log.Printf("[КЛИЕНТ] VK auth mode: %s (hash-check)", activeVkAuthMode)
+		log.Printf("[CLIENT] VK auth mode: %s (hash-check)", activeVkAuthMode)
 		if activeVkAuthMode == "anonymous" {
-			log.Printf("[КЛИЕНТ] VK anon path: %s", activeVkAnonPath)
+			log.Printf("[CLIENT] VK anon path: %s", activeVkAnonPath)
 		}
-		log.Printf("[КЛИЕНТ] Captcha mode: %s", activeCaptchaMode)
+		log.Printf("[CLIENT] Captcha mode: %s", activeCaptchaMode)
 		runHashChecks(ctx, hashes)
 		return
 	}
 
-	log.Printf("[КЛИЕНТ] VK auth mode: %s", activeVkAuthMode)
+	log.Printf("[CLIENT] VK auth mode: %s", activeVkAuthMode)
 	if activeVkAuthMode == "anonymous" {
-		log.Printf("[КЛИЕНТ] VK anon path: %s", activeVkAnonPath)
+		log.Printf("[CLIENT] VK anon path: %s", activeVkAnonPath)
 	}
 
 	if *peerAddr == "" || *vkHash == "" {
-		log.Fatal("[КЛИЕНТ] Нужны -peer и -vk")
+		log.Fatal("[CLIENT] -peer and -vk are required")
 	}
 
 	peer, err := net.ResolveUDPAddr("udp", *peerAddr)
 	if err != nil {
-		log.Fatalf("[КЛИЕНТ] Ошибка разбора пира: %v", err)
+		log.Fatalf("[CLIENT] Error parsing the peer: %v", err)
 	}
 
 	if len(hashes) == 0 {
-		log.Fatal("[КЛИЕНТ] Нет хешей VK")
+		log.Fatal("[CLIENT] No VK hashes")
 	}
 
 	if *connPassword == "" {
-		log.Fatal("[КЛИЕНТ] Нужен -password: WRAP ключ теперь выводится из пароля подключения")
+		log.Fatal("[CLIENT] -password is required: the WRAP key is now derived from the connection password")
 	}
 
 	// WRAP key
 	wrapKey, err := deriveWrapKey(*connPassword)
 	if err != nil {
-		log.Fatalf("[КЛИЕНТ] WRAP key derive: %v", err)
+		log.Fatalf("[CLIENT] WRAP key derive: %v", err)
 	}
 
-	// Лимит воркеров
+	// Worker limit
 	maxWorkers := 108
 	if *numW > maxWorkers {
 		*numW = maxWorkers
@@ -318,7 +318,7 @@ func main() {
 	if getVkAuthMode() == "account" {
 		const accountMaxWorkers = 4
 		if *numW > accountMaxWorkers {
-			log.Printf("[КЛИЕНТ] Аккаунт VK: TURN-квота ~%d relay на сессию, потоков %d -> %d", accountMaxWorkers, *numW, accountMaxWorkers)
+			log.Printf("[CLIENT] VK account: TURN quota ~%d relays per session, streams %d -> %d", accountMaxWorkers, *numW, accountMaxWorkers)
 			*numW = accountMaxWorkers
 		}
 		if *numW < 1 {
@@ -359,15 +359,15 @@ func main() {
 			fmt.Printf("PING_RESULT|%d\n", rtt)
 			os.Exit(0)
 		}
-		// Если все хеши провалились
+		// If every hash failed
 		fmt.Printf("PING_ERROR|All hashes failed. Last error: %v\n", lastErr)
 		os.Exit(1)
 	}
 
-	// Слушаем локально (SO_REUSEADDR — быстрый перезапуск без «address already in use»)
+	// Listen locally (SO_REUSEADDR — a quick restart without "address already in use")
 	localConn, err := listenUDP(*listen)
 	if err != nil {
-		log.Fatalf("[КЛИЕНТ] Ошибка слушателя %s: %v", *listen, err)
+		log.Fatalf("[CLIENT] Listener error %s: %v", *listen, err)
 	}
 	if uc, ok := localConn.(*net.UDPConn); ok {
 		_ = uc.SetReadBuffer(socketBufSize)
@@ -396,29 +396,29 @@ func main() {
 		captchaStatus = "RJS Go v2 with WBV Auto fallback"
 	}
 
-	log.Println("[КЛИЕНТ] ═══════════════════════════════════════")
-	log.Printf("[КЛИЕНТ] VK Creds: 2 stable app_id с циклическим fallback")
-	log.Printf("[КЛИЕНТ] TLS: Chrome 146 fingerprint")
-	log.Printf("[КЛИЕНТ] Воркеров: %d (групп: %d, по %d)", *numW, numGroups, workersPerGroup)
-	log.Printf("[КЛИЕНТ] Хешей: %d", len(hashes))
-	log.Printf("[КЛИЕНТ] Слушаю: %s | Пир: %s", *listen, *peerAddr)
+	log.Println("[CLIENT] ═══════════════════════════════════════")
+	log.Printf("[CLIENT] VK Creds: 2 stable app_id with a rotating fallback")
+	log.Printf("[CLIENT] TLS: Chrome 146 fingerprint")
+	log.Printf("[CLIENT] Workers: %d (groups: %d, %d each)", *numW, numGroups, workersPerGroup)
+	log.Printf("[CLIENT] Hashes: %d", len(hashes))
+	log.Printf("[CLIENT] Listening: %s | Peer: %s", *listen, *peerAddr)
 	if *turnTCP {
-		log.Printf("[КЛИЕНТ] TURN-транспорт: TCP")
+		log.Printf("[CLIENT] TURN transport: TCP")
 	} else {
-		log.Printf("[КЛИЕНТ] TURN-транспорт: UDP")
+		log.Printf("[CLIENT] TURN transport: UDP")
 	}
-	log.Printf("[КЛИЕНТ] Режим: %s", activeConnMode)
+	log.Printf("[CLIENT] Mode: %s", activeConnMode)
 	if activeConnMode == "socks" {
-		log.Printf("[КЛИЕНТ] SOCKS5: %s", *socksAddr)
+		log.Printf("[CLIENT] SOCKS5: %s", *socksAddr)
 		if *socksAuth {
-			log.Printf("[КЛИЕНТ] SOCKS5: авторизация по логину и паролю включена")
+			log.Printf("[CLIENT] SOCKS5: username/password authorization enabled")
 		}
 	}
-	log.Printf("[КЛИЕНТ] WRAP: %s", wrapStatus)
-	log.Printf("[WRAP] Ключ выведен из пароля, режим RTP AEAD активен")
-	log.Printf("[КЛИЕНТ] Device ID: %s", *deviceID)
-	log.Printf("[КЛИЕНТ] Captcha: %s", captchaStatus)
-	log.Println("[КЛИЕНТ] ═══════════════════════════════════════")
+	log.Printf("[CLIENT] WRAP: %s", wrapStatus)
+	log.Printf("[WRAP] The key is derived from the password, RTP AEAD mode is active")
+	log.Printf("[CLIENT] Device ID: %s", *deviceID)
+	log.Printf("[CLIENT] Captcha: %s", captchaStatus)
+	log.Println("[CLIENT] ═══════════════════════════════════════")
 
 	stats := NewStats()
 	shutdownCh := make(chan struct{})
@@ -449,12 +449,12 @@ func main() {
 			if strings.HasPrefix(rawConf, "RAWCONF:") {
 				parts := strings.Split(strings.TrimPrefix(rawConf, "RAWCONF:"), "|")
 				if len(parts) != 3 {
-					log.Printf("[RAW] Некорректный RAWCONF: %q", rawConf)
+					log.Printf("[RAW] Malformed RAWCONF: %q", rawConf)
 					return
 				}
 				ip, dnsCSV, mtuStr := parts[0], parts[1], parts[2]
 				fmt.Println()
-				fmt.Println("╔══════════════ RAW Конфиг ══════════════╗")
+				fmt.Println("╔══════════════ RAW config ══════════════╗")
 				fmt.Printf("║ %-40s ║\n", fmt.Sprintf("IP = %s", ip))
 				fmt.Printf("║ %-40s ║\n", fmt.Sprintf("DNS = %s", dnsCSV))
 				fmt.Printf("║ %-40s ║\n", fmt.Sprintf("MTU = %s", mtuStr))
@@ -462,7 +462,7 @@ func main() {
 
 				var tunFile *os.File
 				if *tunFdSock != "" {
-					log.Println("[RAW] Ожидание TUN fd от Android...")
+					log.Println("[RAW] Waiting for the TUN fd from Android...")
 					var fdErr error
 					attempt := 0
 					for {
@@ -471,33 +471,33 @@ func main() {
 						if fdErr == nil {
 							break
 						}
-						rawDiagf("recvTunFD попытка #%d неудачна: %v (повтор через 200мс)", attempt, fdErr)
+						rawDiagf("recvTunFD attempt #%d failed: %v (retry in 200ms)", attempt, fdErr)
 						select {
 						case <-ctx.Done():
 							return
 						case <-time.After(200 * time.Millisecond):
 						}
 					}
-					rawDiagf("recvTunFD успешен на попытке #%d, fd=%v", attempt, tunFile.Fd())
+					rawDiagf("recvTunFD succeeded on attempt #%d, fd=%v", attempt, tunFile.Fd())
 				} else {
 					mtu, mtuErr := strconv.Atoi(strings.TrimSpace(mtuStr))
 					if mtuErr != nil {
-						log.Printf("[RAW] Некорректный MTU: %q", mtuStr)
+						log.Printf("[RAW] Malformed MTU: %q", mtuStr)
 						cancel()
 						return
 					}
 					nativeTun, nativeErr := createNativeRawTUN(*tunName, *lanInterface, ip, mtu)
 					if nativeErr != nil {
-						log.Printf("[RAW] Ошибка Linux/OpenWrt TUN: %v", nativeErr)
+						log.Printf("[RAW] Linux/OpenWrt TUN error: %v", nativeErr)
 						cancel()
 						return
 					}
 					context.AfterFunc(ctx, nativeTun.cleanup)
 					tunFile = nativeTun.file
-					log.Printf("[RAW] OpenWrt TUN %s поднят, LAN %s направлен в туннель", nativeTun.name, nativeTun.lanInterface)
+					log.Printf("[RAW] OpenWrt TUN %s is up, LAN %s routed into the tunnel", nativeTun.name, nativeTun.lanInterface)
 				}
 				disp.AttachTUN(tunFile)
-				log.Println("[RAW] TUN подключён, трафик пошёл")
+				log.Println("[RAW] TUN attached, traffic is flowing")
 				return
 			}
 
@@ -514,26 +514,26 @@ func main() {
 				finalConf = strings.Join(newLines, "\n")
 			}
 			fmt.Println()
-			fmt.Println("╔══════════════ WireGuard Конфиг ══════════════╗")
+			fmt.Println("╔══════════════ WireGuard config ══════════════╗")
 			for _, line := range strings.Split(finalConf, "\n") {
 				fmt.Printf("║ %-44s ║\n", line)
 			}
 			fmt.Println("╚══════════════════════════════════════════════╝")
 			if err := os.WriteFile("wg-turn.conf", []byte(finalConf+"\n"), 0600); err != nil {
-				log.Printf("[КОНФИГ] Ошибка сохранения: %v", err)
+				log.Printf("[CONFIG] Error saving: %v", err)
 			} else {
-				log.Println("[КОНФИГ] Сохранён в wg-turn.conf")
+				log.Println("[CONFIG] Saved to wg-turn.conf")
 			}
 
 			if activeConnMode == "socks" {
 				dev, tnet, err := startUserspaceWireGuard(finalConf)
 				if err != nil {
-					log.Printf("[SOCKS] Ошибка userspace WG: %v", err)
+					log.Printf("[SOCKS] Userspace WG error: %v", err)
 					return
 				}
 				defer dev.Close()
 				if err := runSocks5Server(ctx, *socksAddr, tnet, *socksAuth, *socksUser, *socksPass); err != nil {
-					log.Printf("[SOCKS] Сервер остановлен: %v", err)
+					log.Printf("[SOCKS] Server stopped: %v", err)
 				}
 			}
 		case <-ctx.Done():
@@ -594,5 +594,5 @@ func main() {
 	cancel()
 	close(configCh)
 	<-configDone
-	log.Println("[КЛИЕНТ] Все воркеры завершены")
+	log.Println("[CLIENT] All workers have finished")
 }
