@@ -91,21 +91,21 @@ type Dispatcher struct {
 	tunSentCount    uint64
 	tunDroppedCount uint64
 
-	localConn    net.PacketConn
-	tunFile      *os.File // not nil in -mode rawtun: raw IP packets instead of the local WG loopback
-	ready        chan struct{}
-	clientAddr   atomic.Pointer[net.Addr]
-	mu           sync.Mutex
-	workers      []*WorkerSlot
-	rrIndex      int
-	rrCount      int   // packets sent to the current worker within the current chunk
-	lastPktTime  int64 // unix millis of the last packet - to reset the chunk after a pause
-	chunkStartTs int64 // unix millis of the current chunk's start - for maxDwellMS
-	ReturnCh     chan []byte
-	ctx          context.Context
-	cancel       context.CancelFunc
-	wg           sync.WaitGroup
-	stats        *Stats
+	localConn     net.PacketConn
+	tunFile       *os.File // not nil in -mode rawtun: raw IP packets instead of the local WG loopback
+	ready         chan struct{}
+	clientAddr    atomic.Pointer[net.Addr]
+	mu            sync.Mutex
+	workers       []*WorkerSlot
+	rrIndex       int
+	rrCount       int   // packets sent to the current worker within the current chunk
+	lastPktTime   int64 // unix millis of the last packet - to reset the chunk after a pause
+	chunkStartTs  int64 // unix millis of the current chunk's start - for maxDwellMS
+	ReturnCh      chan []byte
+	ctx           context.Context
+	cancel        context.CancelFunc
+	wg            sync.WaitGroup
+	stats         *Stats
 	firstPktUp    uint32
 	firstPktDown  uint32
 	firstReadErr  uint32

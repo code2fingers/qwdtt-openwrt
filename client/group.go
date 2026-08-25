@@ -11,7 +11,6 @@ import (
 	"time"
 )
 
-
 const workersPerGroup = 9
 
 // allocateGateInterval is the minimum interval between TURN Allocate requests
@@ -307,10 +306,10 @@ func normalizeVKJoinHash(input string) string {
 
 // TurnParams is the TURN configuration
 type TurnParams struct {
-	Host    string
-	Port    string
-	Hashes  []string
-	WrapKey []byte // Password-derived WRAP key (32 bytes), nil = disabled
+	Host     string
+	Port     string
+	Hashes   []string
+	WrapKey  []byte // Password-derived WRAP key (32 bytes), nil = disabled
 	ObfsMode string // "audio" or "video" - RTP masking mode
 	// NoDTLS: skip DTLS and run RTP-obfs AEAD directly over the TURN relay.
 	// Requires a server that can accept direct (DTLS-less) sessions on a
@@ -333,5 +332,3 @@ type Credentials struct {
 	TurnURLs      []string
 	CacheStreamID int
 }
-
-

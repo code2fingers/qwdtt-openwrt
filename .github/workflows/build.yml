@@ -8,8 +8,36 @@ permissions:
   contents: read
 
 jobs:
+  fmt:
+    name: gofmt
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.x"
+          cache-dependency-path: client/go.sum
+
+      # Meaningful only because .gitattributes checks the tree out with LF:
+      # on a CRLF checkout gofmt reports every file and the gate says nothing.
+      - name: Check formatting
+        working-directory: client
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "not gofmt-clean:"
+            echo "$unformatted"
+            gofmt -d .
+            exit 1
+          fi
+
   build:
     name: Build ${{ matrix.name }}
+    needs: fmt
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
