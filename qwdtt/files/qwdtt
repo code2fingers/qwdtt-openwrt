@@ -1,0 +1,164 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Control script for the qWDTT RAW-IP tunnel. Driven by the LuCI page at
+# Services -> qWDTT and useful directly over ssh. A package of its own rather
+# than part of luci-app-qwdtt: a headless router needs it with no web
+# interface installed.
+#
+# The tunnel is a daemon-owned TUN device -- qwdtt0 unless tun_name says
+# otherwise -- and not a netifd interface, so the service is what you start
+# and stop. It deliberately has no netifd interface: adding one made netifd
+# flush the daemon's address and route.
+#
+# Client output goes to the system log (procd stdout/stderr); read it with
+# 'logread -e qwdtt'. logd owns retention, so there is no log file to rotate.
+#
+# Usage: qwdtt start | stop | restart | status | log [n]
+#        qwdtt brief       the status fields, without the end-to-end probe
+#        qwdtt tunnel      the end-to-end probe on its own
+
+# What this script assumes but does not provide. All three come from whatever
+# deploys the client, and none of them is enforced here, so they are written
+# down rather than left to be rediscovered:
+#
+#   /etc/init.d/qwdtt     start, stop and restart delegate to it
+#   qwdtt.main.enabled    the init script reads it to decide whether to start
+#                         at boot, which is what start and stop write and what
+#                         the page's "start at boot" wording promises
+#   table 51820           the route the client creates for the LAN's
+#                         traffic; only reported here, never created
+#
+RT_TABLE=51820                  # routing table the tunnel's route and rule live in
+# The interface the client creates, read from UCI rather than hardcoded because
+# the LuCI page reads the same option: hardcoded, setting tun_name made the page
+# report the interface up while this reported it absent. qwdtt0 is the client's
+# default.
+#
+# `|| :` here and on every other uci read below. This script does not set -e so
+# it changes nothing today, but `uci -q get` exits 1 for a missing option and a
+# bare assignment inherits that status, so adding set -e later would make an
+# unset option kill the script before it printed anything.
+TUN=$(uci -q get qwdtt.main.tun_name || :)
+[ -n "$TUN" ] || TUN=qwdtt0
+PROBE_HOSTS='8.8.8.8 1.1.1.1'
+PROBE_COUNT=10                  # probes per host; loss matters, not reachability
+PROBE_DEADLINE=4                # seconds; caps the probe against a dead host
+MAX_LOSS=40                     # percent; above this the tunnel cannot carry TCP
+
+# Are we in a different network namespace than the router itself? virt-shell
+# runs its shell inside 'nsclient', where the tunnel interface does not exist
+# -- the interface check would then report it down while it is perfectly
+# healthy, which is exactly how it reads when run from inside virt-shell.
+in_other_netns() {
+	[ -r /proc/1/ns/net ] || return 1
+	[ "$(readlink /proc/self/ns/net 2>/dev/null)" != "$(readlink /proc/1/ns/net 2>/dev/null)" ]
+}
+
+# Measure loss rather than send one packet: when only some of the client's
+# workers go stale the tunnel still answers intermittently, so a single ping
+# reports a tunnel that is in fact unusable for TCP.
+#
+# Parse the loss percentage, not the received count: ping prints the count as
+# "5 received," and the comma is part of the field, which silently yielded 0
+# and made this report a healthy tunnel dead.
+#
+# -I binds the device, so the probe leaves through the tunnel rather than the
+# default route. Confirmed by TTL against this router's uplink: 117 through the
+# tunnel, 108 without. -I with an ADDRESS would not do: that sets the source
+# only, the packet still leaves by the default route, and the probe reports a
+# healthy tunnel it never entered.
+#
+# -A rather than a fixed interval, because BusyBox ping takes whole seconds
+# only. Adaptive sends the next probe as soon as a reply arrives, so a healthy
+# tunnel finishes in well under a second, and -w caps a dead one.
+tunnel_ok() {
+	for h in $PROBE_HOSTS; do
+		loss=$(ping -c"$PROBE_COUNT" -A -w"$PROBE_DEADLINE" -I "$TUN" "$h" 2>/dev/null |
+			awk '{ for (i = 1; i <= NF; i++) if ($i ~ /%$/) { sub(/%$/, "", $i); print $i; exit } }')
+		loss=${loss%%.*}
+		[ -n "$loss" ] || loss=100
+		TUNNEL_RESULT="${loss}% loss via $h"
+		[ "$loss" -le "$MAX_LOSS" ] && return 0
+	done
+	return 1
+}
+
+# Everything readable without sending a packet, so the LuCI page can poll it
+# through `qwdtt brief` every few seconds.
+#
+# One implementation on purpose. This block used to be copied into the page's
+# rpcd helper, and the two drifted exactly as you would expect: different
+# placeholders for an unset enabled flag, and the copy grew `running` and
+# `hashes` that the original never gained.
+report_static() {
+	echo "enabled:   $(uci -q get qwdtt.main.enabled || echo '?')"
+	if ip link show "$TUN" >/dev/null 2>&1; then
+		# Deliberately NOT `ip -br addr`, whose second column is the
+		# operational state. A userspace TUN reports that as "unknown"
+		# however well it is working -- the kernel only advances IF_OPER_*
+		# for drivers that track link state, and a tun with link/none does
+		# not; ZeroTier's interface reads the same. Printing it invites
+		# "why does it say UNKNOWN" about a tunnel that is carrying
+		# traffic. carrier is the field that means something here.
+		case "$(cat "/sys/class/net/$TUN/carrier" 2>/dev/null)" in
+		1) echo "interface: $TUN up, carrier ok" ;;
+		0) echo "interface: $TUN present but NO CARRIER" ;;
+		*) echo "interface: $TUN present, carrier not reported" ;;
+		esac
+		echo "address:   $(ip -4 -o addr show "$TUN" 2>/dev/null | awk '{printf "%s ", $4}')"
+		echo "route:     $(ip route show table "$RT_TABLE" 2>/dev/null | head -1)"
+	elif in_other_netns; then
+		echo "interface: not visible from this network namespace"
+		echo "           ($TUN lives in the root namespace; the tunnel may be fine)"
+	else
+		echo "interface: down ($TUN absent)"
+	fi
+	echo "running:   $(pgrep -f qwdtt-client >/dev/null 2>&1 && echo yes || echo no)"
+	ph=$(uci -q get qwdtt.main.peer_host || :)
+	pp=$(uci -q get qwdtt.main.peer_port || :)
+	echo "peer:      ${ph}${pp:+:$pp}"
+	echo "hashes:    $(uci -q get qwdtt.main.hash | wc -w) configured"
+	echo "traffic:   $(logread -e qwdtt 2>/dev/null | grep -a 'STATS' | tail -1 | sed 's/.*\[STATS\] //')"
+	echo "log:       logread -e qwdtt"
+}
+
+# The end-to-end probe alone, so the page's button can show its result instead
+# of repeating the whole status underneath the copy it already polls.
+report_tunnel() {
+	if tunnel_ok; then
+		echo "tunnel:    ok ($TUNNEL_RESULT)"
+	else
+		echo "tunnel:    DEAD ($TUNNEL_RESULT)"
+	fi
+}
+
+case "${1:-status}" in
+start)
+	uci -q set qwdtt.main.enabled='1'; uci -q commit qwdtt
+	/etc/init.d/qwdtt restart && echo "qwdtt: started (enabled at boot)"
+	;;
+stop)
+	uci -q set qwdtt.main.enabled='0'; uci -q commit qwdtt
+	/etc/init.d/qwdtt stop && echo "qwdtt: stopped (disabled at boot)"
+	;;
+restart)
+	/etc/init.d/qwdtt restart && echo "qwdtt: restarted"
+	;;
+status)
+	report_static
+	report_tunnel
+	echo "--- recent log ---"
+	logread -e qwdtt 2>/dev/null | grep -aviE 'STATS|DEBUG' | tail -8
+	;;
+brief)
+	report_static ;;
+tunnel)
+	report_tunnel ;;
+log)
+	logread -e qwdtt 2>/dev/null | tail -n "${2:-50}"
+	;;
+*)
+	echo "usage: qwdtt start | stop | restart | status | brief | tunnel | log [n]" >&2
+	exit 1
+	;;
+esac
