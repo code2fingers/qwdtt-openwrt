@@ -1,0 +1,13 @@
+{
+	"admin/services/qwdtt": {
+		"title": "qWDTT",
+		"order": 30,
+		"action": {
+			"type": "view",
+			"path": "qwdtt/overview"
+		},
+		"depends": {
+			"acl": [ "luci-app-qwdtt" ]
+		}
+	}
+}
