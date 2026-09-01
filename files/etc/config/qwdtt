@@ -1,3 +1,0 @@
-config qwdtt 'main'
-	option enabled '0'
-	option config '/etc/qwdtt/config.json'

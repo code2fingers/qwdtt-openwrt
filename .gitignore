@@ -1,2 +1,33 @@
-qwdtt-client*
+# Stray client binaries at the repository root, e.g. qwdtt-client-aarch64 from
+# a hand-run cross build. The plain name qwdtt-client is not listed because it
+# is the package directory now; builds write into dist/ instead.
+/qwdtt-client-*
 *.tar.gz
+
+# Output of `./build.sh` and of the release workflow's Go cross-build. The SDK
+# container moves its bin/ and logs/ in here, so the whole directory is output.
+/dist/
+
+# SDK output, if a build is ever run inside the checkout
+/bin/
+/build_dir/
+/staging_dir/
+/logs/
+/tmp/
+*.ipk
+*.apk
+
+# Per-machine Claude settings, sitting next to the shared .claude/settings.json.
+.claude/settings.local.json
+
+# editor and OS noise
+*.swp
+*~
+.DS_Store
+
+# Never commit a signing key. The apk private key lives in the repo secret
+# APK_PRIVATE_KEY and in a password manager, never here.
+*private-key*.pem
+
+# Staged by CI before the SDK runs; never committed.
+/qwdtt-client/files/qwdtt-client

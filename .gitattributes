@@ -1,5 +1,11 @@
-# The Go sources, the shell scripts and the OpenWrt config files under files/
-# are all consumed on Linux, so keep LF in the working tree as well as in the
-# repository. Without this a Windows checkout is CRLF, which makes gofmt -l
-# flag every file and leaves init scripts with carriage returns.
+# The Go sources, the shell scripts, the package payloads under root/ and the
+# OpenWrt config files under files/ are all consumed on Linux, so keep LF in
+# the working tree as well as in the index -- the latter is all core.autocrlf
+# guarantees.
+#
+# This is not cosmetic. A CRLF in an installed script makes the shebang read
+# "/bin/sh\r", which the kernel reports as a bad interpreter: an error naming a
+# path that plainly exists. Anyone cloning on Windows with core.autocrlf=true
+# would otherwise build packages whose helper scripts cannot run. It also makes
+# gofmt -l flag every file, which turns the CI formatting gate into noise.
 * text=auto eol=lf
