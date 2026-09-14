@@ -113,12 +113,24 @@ report_static() {
 	else
 		echo "interface: down ($TUN absent)"
 	fi
-	echo "running:   $(pgrep -f qwdtt-client >/dev/null 2>&1 && echo yes || echo no)"
+	if pgrep -f qwdtt-client >/dev/null 2>&1; then
+		running=yes
+	else
+		running=no
+	fi
+	echo "running:   $running"
 	ph=$(uci -q get qwdtt.main.peer_host || :)
 	pp=$(uci -q get qwdtt.main.peer_port || :)
 	echo "peer:      ${ph}${pp:+:$pp}"
 	echo "hashes:    $(uci -q get qwdtt.main.hash | wc -w) configured"
-	echo "traffic:   $(logread -e qwdtt 2>/dev/null | grep -a 'STATS' | tail -1 | sed 's/.*\[STATS\] //')"
+	# The counters come from the last [STATS] line the client logged, and that
+	# line outlives the process: reported unconditionally, a stopped tunnel
+	# still shows the worker count and traffic it carried before it stopped.
+	if [ "$running" = yes ]; then
+		echo "traffic:   $(logread -e qwdtt 2>/dev/null | grep -a 'STATS' | tail -1 | sed 's/.*\[STATS\] //')"
+	else
+		echo "traffic:   -"
+	fi
 	echo "log:       logread -e qwdtt"
 }
 
