@@ -453,11 +453,13 @@ jobs:
     # Dispatch too, for the same reason as client-packages: publishing a feed
     # has enough moving parts that proving it should not cost a tag.
     #
-    # Only on this repository: a fork has neither APK_PRIVATE_KEY nor a Pages
-    # site, so without the guard a contributor's dispatch goes red on
-    # something that is not their problem.
+    # Publishing repositories only: a fork has neither the signing secrets nor
+    # a Pages site, so a contributor's dispatch would go red on something that
+    # is not their problem. A repository variable rather than a hardcoded name,
+    # so the sandbox can rehearse a release without carrying a patched copy of
+    # this file -- which is how a sandbox-only edit nearly reached main once.
     if: >-
-      github.repository == 'code2fingers/qwdtt-openwrt' &&
+      vars.PUBLISH == 'true' &&
       (startsWith(github.ref, 'refs/tags/v') ||
        github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
@@ -612,39 +614,23 @@ jobs:
                        echo OK || exit 1
                    done'
 
-      - name: Write the landing page
+      - name: Generate the site
         run: |
-          repo_url="https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}"
-          {
-            echo '<!doctype html><meta charset="utf-8">'
-            echo "<title>qWDTT OpenWrt feed</title>"
-            echo "<h1>qWDTT OpenWrt package feed</h1>"
-            echo "<p>Pick the section matching your OpenWrt release. The"
-            echo "installer at <code>install.sh</code> does all of this for"
-            echo "you.</p>"
+          .github/scripts/generate-feed-pages.sh site \
+            "https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}"
 
-            echo "<h2>OpenWrt 25.12 and later (apk)</h2>"
-            echo "<p>Key: <a href=\"qwdtt.pem\">qwdtt.pem</a>, into"
-            echo "<code>/etc/apk/keys/</code>. Then one of:</p><pre>"
-            for d in site/releases/25.12/*; do
-              echo "$repo_url/releases/25.12/$(basename "$d")/packages.adb"
-            done
-            echo '</pre>'
-
-            echo "<h2>OpenWrt 24.10 (opkg)</h2>"
-            echo "<p>Key: <a href=\"qwdtt-usign.pub\">qwdtt-usign.pub</a>, into"
-            echo "<code>/etc/opkg/keys/</code> named as its key id. Then one of:</p><pre>"
-            for d in site/releases/24.10/*; do
-              echo "src/gz qwdtt $repo_url/releases/24.10/$(basename "$d")"
-            done
-            echo '</pre>'
-          } > site/index.html
-          cat site/index.html
+      # The theme only exists in the github-pages gem set, so the site has to
+      # be built here; upload-pages-artifact serves the directory as-is.
+      - name: Build with Jekyll
+        uses: actions/jekyll-build-pages@v1
+        with:
+          source: site
+          destination: _site
 
       - name: Upload the site
         uses: actions/upload-pages-artifact@v5
         with:
-          path: site
+          path: _site
 
       - name: Deploy to Pages
         id: deploy
@@ -653,10 +639,9 @@ jobs:
   release:
     name: Publish release
     needs: [client, packages, client-packages]
-    # Same guard as the feed job: a fork tagging its own work should not try to
-    # publish a release here.
+    # Same guard as the feed job.
     if: >-
-      github.repository == 'code2fingers/qwdtt-openwrt' &&
+      vars.PUBLISH == 'true' &&
       startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
@@ -741,10 +726,19 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           base="https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME"
-          arches="aarch64_cortex-a53 arm_cortex-a7_neon-vfpv4 mipsel_24kc x86_64"
           noarch="qwdtt luci-app-qwdtt luci-i18n-qwdtt-ru"
           names=$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
                     --json assets -q '.assets[].name')
+
+          # Read the targets back off the client .ipk names rather than listing
+          # them here. A hardcoded list silently mis-sorts the moment the build
+          # matrix gains an architecture: the unknown one is classified as
+          # noarch, so it takes over an All row and the real noarch package
+          # vanishes from the table.
+          arches=$(echo "$names" |
+                   sed -n 's/^qwdtt-client_[^_]*_\(.*\)\.ipk$/\1/p' | sort -u)
+          test -n "$arches" || { echo "no client packages found in the release"; exit 1; }
+          echo "targets: $(echo $arches | tr '\n' ' ')"
 
           # A file belongs to a target if its name contains that pkgarch.
           link() {  # ext target -> <a> for its file, or N/A

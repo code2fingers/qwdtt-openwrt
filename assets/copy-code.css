@@ -1,0 +1,32 @@
+.copy-wrapper {
+  position: relative;
+}
+
+.copy-button {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.4rem;
+  padding: 0.15rem 0.6rem;
+  font: inherit;
+  font-size: 0.8rem;
+  line-height: 1.6;
+  color: inherit;
+  background: rgba(127, 127, 127, 0.25);
+  border: 1px solid rgba(127, 127, 127, 0.5);
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.copy-wrapper:hover .copy-button,
+.copy-button:focus {
+  opacity: 1;
+}
+
+/* Touch devices never hover, so the button would otherwise be unreachable. */
+@media (hover: none) {
+  .copy-button {
+    opacity: 1;
+  }
+}
