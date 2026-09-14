@@ -118,12 +118,15 @@ install_via_feed() {
 	msg "apk update"
 	apk update
 
+	# --upgrade, because `apk add` is a no-op on a package that is already
+	# installed: without it, re-running this to pick up a new release leaves
+	# the old version in place and says nothing.
 	msg "installing: $CORE_PKGS"
 	# shellcheck disable=SC2086
-	apk add $CORE_PKGS
+	apk add --upgrade $CORE_PKGS
 
 	if [ "$WANT_I18N" = 1 ]; then
-		apk add "$I18N_PKG" ||
+		apk add --upgrade "$I18N_PKG" ||
 			warn "could not install $I18N_PKG (translation only; skipping)"
 	fi
 
@@ -166,10 +169,18 @@ install_via_opkg() {
 	msg "installing: $CORE_PKGS"
 	# shellcheck disable=SC2086
 	opkg install $CORE_PKGS
+	# `opkg install` is a no-op on a package that is already installed, so
+	# without this a re-run to pick up a new release leaves the old version
+	# in place. It runs second because `opkg upgrade` needs them installed.
+	# shellcheck disable=SC2086
+	opkg upgrade $CORE_PKGS ||
+		warn "opkg upgrade reported a problem; see its output above"
 
 	if [ "$WANT_I18N" = 1 ]; then
 		opkg install "$I18N_PKG" ||
 			warn "could not install $I18N_PKG (translation only; skipping)"
+		opkg upgrade "$I18N_PKG" ||
+			warn "could not upgrade $I18N_PKG (translation only; skipping)"
 	fi
 
 	msg "done."
