@@ -1,0 +1,124 @@
+# Bumps PKG_VERSION in the three packages together and opens the release pull
+# request. Merging that request is the whole release: Release runs on the push
+# to main and creates the tag itself, once the build and the feed have passed.
+#
+# Nothing is tagged here. main takes pull requests only, so the commit a tag
+# must point at does not exist until a person has merged.
+#
+# Needs "Allow GitHub Actions to create and approve pull requests" enabled on
+# the repository, or the gh pr create below fails outright. That is one toggle
+# covering both halves; the approving half grants nothing while main requires
+# zero approvals, but raising that count makes it a bypass worth replacing
+# with a PAT.
+---
+name: Bump version
+
+on:
+  workflow_dispatch:
+    inputs:
+      part:
+        description: Which part of the version to raise
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  bump:
+    name: bump and open the release pull request
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+        with:
+          # Tags are needed to refuse a version that was already released.
+          fetch-depth: 0
+
+      - name: Bump and open a pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PART: ${{ inputs.part }}
+        run: |
+          set -eu
+
+          # Running this from a feature branch would put that branch's other
+          # commits into the release pull request.
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "run this on main; it is at $GITHUB_REF"
+            exit 1
+          fi
+
+          MKS="qwdtt/Makefile qwdtt-client/Makefile luci-app-qwdtt/Makefile"
+
+          # The three have to agree already. If they do not, the repository is
+          # in a state no single version describes, and a bump would only carry
+          # the disagreement forward under a new number.
+          cur=""
+          for mk in $MKS; do
+            v=$(sed -n 's/^PKG_VERSION:=[[:space:]]*//p' "$mk" | tr -d '[:space:]')
+            [ -n "$cur" ] || cur=$v
+            if [ "$v" != "$cur" ]; then
+              echo "$mk is $v, but the first Makefile says $cur"
+              exit 1
+            fi
+          done
+
+          # Exactly three numeric components. Two would make the arithmetic
+          # below read the same field twice, four would feed it "0.4", and an
+          # empty value passes every shape test there is.
+          bad=0
+          case "$cur" in
+          "" | *[!0-9.]* | *..* | .* | *.) bad=1 ;;
+          esac
+          [ "$(printf '%s' "$cur" | tr -cd . | wc -c)" -eq 2 ] || bad=1
+          if [ "$bad" -ne 0 ]; then
+            echo "PKG_VERSION is '$cur', which is not x.y.z"
+            exit 1
+          fi
+
+          rest=${cur#*.}
+          major=${cur%%.*}
+          minor=${rest%%.*}
+          patch=${rest#*.}
+
+          case "$PART" in
+          major) major=$((major + 1)); minor=0; patch=0 ;;
+          minor) minor=$((minor + 1)); patch=0 ;;
+          patch) patch=$((patch + 1)) ;;
+          esac
+          new="$major.$minor.$patch"
+          echo "$cur -> $new"
+
+          if git rev-parse -q --verify "refs/tags/v$new" >/dev/null; then
+            echo "v$new is already tagged"
+            exit 1
+          fi
+
+          for mk in $MKS; do
+            sed -i "s/^PKG_VERSION:=.*/PKG_VERSION:=$new/" "$mk"
+            # PKG_RELEASE counts packaging revisions within one version, so a
+            # new version starts it over.
+            sed -i "s/^PKG_RELEASE:=.*/PKG_RELEASE:=1/" "$mk"
+          done
+          grep -H '^PKG_VERSION\|^PKG_RELEASE' $MKS
+
+          git config user.name "$GITHUB_ACTOR"
+          git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
+          git checkout -q -b "release/v$new"
+          git commit -qam "release: $new"
+          git push -q origin "release/v$new"
+
+          # Build does run on this pull request, but only as far as the
+          # changes job lets it: a release/v* branch is a version bump by
+          # construction, and the release that follows the merge rebuilds
+          # everything before it publishes anything.
+          gh pr create --base main --head "release/v$new" \
+            --title "release: $new" \
+            --body "Bumps PKG_VERSION to $new in qwdtt, qwdtt-client and
+          luci-app-qwdtt, and resets PKG_RELEASE to 1.
+
+          Merging this publishes $new: Release runs on the merge and tags it."

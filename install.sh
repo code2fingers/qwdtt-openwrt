@@ -5,10 +5,10 @@
 #
 #   wget -qO- https://raw.githubusercontent.com/code2fingers/qwdtt-openwrt/main/install.sh | sh
 #
-# It adds the signed feed and its trust key, then installs the control script,
-# the LuCI page and the client. Both package managers are served: 25.12 and
-# later read an apk index, 24.10 an opkg one, from separate paths under the
-# same site.
+# It adds the signed feed and its trust key, then installs the client, the
+# control script and the LuCI page. Both package managers are served: 25.12
+# and later read an apk index, 24.10 an opkg one, from separate paths under
+# the same site.
 #
 # It configures nothing and starts nothing: the peer, password and call hashes
 # are secrets the operator supplies afterwards, over LuCI or UCI.
@@ -18,6 +18,8 @@ set -eu
 REPO_OWNER=code2fingers
 REPO_NAME=qwdtt-openwrt
 FEED_BASE="https://${REPO_OWNER}.github.io/${REPO_NAME}"
+# The 25.12 and 24.10 in the feed URLs below are the release series
+# .github/openwrt-targets.json builds for; a new one has to be added in both.
 
 # A file of our own rather than a line appended to customfeeds: re-running is
 # then a write instead of a duplicate, and removing us is a single rm.
@@ -25,10 +27,7 @@ APK_KEY_DEST=/etc/apk/keys/qwdtt.pem
 APK_FEED_LIST=/etc/apk/repositories.d/qwdtt.list
 OPKG_FEED_CONF=/etc/opkg/qwdtt.conf
 
-# The three qWDTT packages, plus ip-full: the client policy-routes with
-# `ip rule`/`ip route ... table`, which BusyBox ip does not fully implement, and
-# qwdtt-client does not depend on it (kmod-tun and ca-bundle it does).
-CORE_PKGS="ip-full qwdtt luci-app-qwdtt qwdtt-client"
+CORE_PKGS="qwdtt-client qwdtt luci-app-qwdtt"
 I18N_PKG="luci-i18n-qwdtt-ru"
 
 WANT_I18N=1
@@ -47,6 +46,9 @@ Usage: install.sh [-e] [-b URL] [-h]
 
 Run as root on the router:
   wget -qO- https://raw.githubusercontent.com/$REPO_OWNER/$REPO_NAME/main/install.sh | sh
+
+A piped script gets no arguments of its own, so flags go after 'sh -s --':
+  wget -qO- .../install.sh | sh -s -- -e
 EOF
 	exit 0
 }
