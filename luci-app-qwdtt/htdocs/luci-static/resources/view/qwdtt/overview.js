@@ -553,6 +553,10 @@ return view.extend({
 			return fs.exec_direct('/usr/bin/qwdtt-luci', [ 'log' ]).then(function(data) {
 				var text = (data || '').trim() || _('Log is empty');
 				logBox.value = text;
+				/* Grow to the content rather than scrolling inside a fixed box,
+				   which is what Status -> System Log does. The line count is
+				   capped at 400 by qwdtt-luci, so this has a ceiling. */
+				logBox.rows = text.split('\n').length + 1;
 				logBox.scrollTop = logBox.scrollHeight;
 			}).catch(function(err) {
 				logBox.value = _('Unable to read the log:') + ' ' + err;
