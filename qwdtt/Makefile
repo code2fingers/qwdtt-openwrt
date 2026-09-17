@@ -16,7 +16,7 @@ PKG_NAME:=qwdtt
 # One tag versions the whole repository: the client, this script and the LuCI
 # app all carry it, so the tag and the package version are always the same
 # number and need no lookup table.
-PKG_VERSION:=1.0.2
+PKG_VERSION:=1.1.0
 PKG_RELEASE:=1
 
 # Deliberately empty, not forgotten. package-defaults.mk does
