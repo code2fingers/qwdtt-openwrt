@@ -166,25 +166,25 @@ msgstr ""
 msgid "DNS"
 msgstr ""
 
-msgid "Resolver profile. Observed value: yandex."
+msgid "DNS resolver for VK: yandex, cloudflare or google, their doh- variants, or custom:IP and doh:URL."
 msgstr ""
 
 msgid "Obfuscation"
 msgstr ""
 
-msgid "Observed values: audio, video."
+msgid "Obfuscation mode: audio or video."
 msgstr ""
 
 msgid "Captcha mode"
 msgstr ""
 
-msgid "Observed value: auto."
+msgid "Captcha bypass mode: auto, wv or rjs."
 msgstr ""
 
 msgid "VK auth"
 msgstr ""
 
-msgid "Observed values: anonymous, token."
+msgid "VK authorization mode: account or anonymous."
 msgstr ""
 
 msgid "VK anonymous path"
@@ -224,4 +224,19 @@ msgid "Settings"
 msgstr ""
 
 msgid "Logs"
+msgstr ""
+
+msgid "UDP port of the server RAW listener, usually 56003."
+msgstr ""
+
+msgid "Connection password, as set on the server."
+msgstr ""
+
+msgid "Anonymous VK TURN path: vkcalls or legacy."
+msgstr ""
+
+msgid "Direct mode: RTP-obfs AEAD over TURN without DTLS. The server has to be started with -listen-direct, or the tunnel will not come up."
+msgstr ""
+
+msgid "Reach the TURN relay over TCP instead of UDP. Works around UDP throttling on some networks, for example Rostelecom."
 msgstr ""

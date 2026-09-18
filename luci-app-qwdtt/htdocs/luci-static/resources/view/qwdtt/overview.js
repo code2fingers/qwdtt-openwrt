@@ -425,11 +425,13 @@ return view.extend({
 			_('Server hostname or IP address.'));
 		o.rmempty = false;
 
-		o = s.option(form.Value, 'peer_port', _('Peer port'));
+		o = s.option(form.Value, 'peer_port', _('Peer port'),
+			_('UDP port of the server RAW listener, usually 56003.'));
 		o.datatype = 'port';
 		o.rmempty = false;
 
-		o = s.option(form.Value, 'password', _('Password'));
+		o = s.option(form.Value, 'password', _('Password'),
+			_('Connection password, as set on the server.'));
 		o.password = true;
 		o.rmempty = false;
 
@@ -515,18 +517,19 @@ return view.extend({
 		o.datatype = 'uinteger';
 
 		o = s.option(form.Value, 'dns', _('DNS'),
-			_('Resolver profile. Observed value: yandex.'));
+			_('DNS resolver for VK: yandex, cloudflare or google, their doh- variants, or custom:IP and doh:URL.'));
 
 		o = s.option(form.Value, 'obfs', _('Obfuscation'),
-			_('Observed values: audio, video.'));
+			_('Obfuscation mode: audio or video.'));
 
 		o = s.option(form.Value, 'captcha_mode', _('Captcha mode'),
-			_('Observed value: auto.'));
+			_('Captcha bypass mode: auto, wv or rjs.'));
 
 		o = s.option(form.Value, 'vk_auth', _('VK auth'),
-			_('Observed values: anonymous, token.'));
+			_('VK authorization mode: account or anonymous.'));
 
-		o = s.option(form.Value, 'vk_anon_path', _('VK anonymous path'));
+		o = s.option(form.Value, 'vk_anon_path', _('VK anonymous path'),
+			_('Anonymous VK TURN path: vkcalls or legacy.'));
 
 		o = s.option(form.Value, 'tun_name', _('TUN device'),
 			_('Interface the client creates, for example: qwdtt0.'));
@@ -534,10 +537,12 @@ return view.extend({
 		o = s.option(form.Value, 'lan_interface', _('LAN interface'),
 			_('LAN interface, for example: br-lan.'));
 
-		o = s.option(form.Flag, 'no_dtls', _('Disable DTLS'));
+		o = s.option(form.Flag, 'no_dtls', _('Disable DTLS'),
+			_('Direct mode: RTP-obfs AEAD over TURN without DTLS. The server has to be started with -listen-direct, or the tunnel will not come up.'));
 		o.rmempty = false;
 
-		o = s.option(form.Flag, 'turn_tcp', _('TURN over TCP'));
+		o = s.option(form.Flag, 'turn_tcp', _('TURN over TCP'),
+			_('Reach the TURN relay over TCP instead of UDP. Works around UDP throttling on some networks, for example Rostelecom.'));
 		o.rmempty = false;
 
 		/* ---- logs tab ----------------------------------------------------- */

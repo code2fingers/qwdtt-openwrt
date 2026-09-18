@@ -170,26 +170,26 @@ msgstr "Количество параллельных сессий."
 msgid "DNS"
 msgstr "DNS"
 
-msgid "Resolver profile. Observed value: yandex."
-msgstr "Профиль DNS-резолвера. Известное значение: yandex."
+msgid "DNS resolver for VK: yandex, cloudflare or google, their doh- variants, or custom:IP and doh:URL."
+msgstr "DNS-резолвер для VK: yandex, cloudflare или google, их doh-варианты, либо custom:IP и doh:URL."
 
 msgid "Obfuscation"
 msgstr "Обфускация"
 
-msgid "Observed values: audio, video."
-msgstr "Известные значения: audio, video."
+msgid "Obfuscation mode: audio or video."
+msgstr "Режим обфускации: audio или video."
 
 msgid "Captcha mode"
 msgstr "Режим капчи"
 
-msgid "Observed value: auto."
-msgstr "Известное значение: auto."
+msgid "Captcha bypass mode: auto, wv or rjs."
+msgstr "Режим обхода капчи: auto, wv или rjs."
 
 msgid "VK auth"
 msgstr "Авторизация VK"
 
-msgid "Observed values: anonymous, token."
-msgstr "Известные значения: anonymous, token."
+msgid "VK authorization mode: account or anonymous."
+msgstr "Режим авторизации VK: account или anonymous."
 
 msgid "VK anonymous path"
 msgstr "Анонимный путь VK"
@@ -229,3 +229,18 @@ msgstr "Настройки"
 
 msgid "Logs"
 msgstr "Журнал"
+
+msgid "UDP port of the server RAW listener, usually 56003."
+msgstr "UDP-порт RAW-слушателя на сервере, обычно 56003."
+
+msgid "Connection password, as set on the server."
+msgstr "Пароль подключения, заданный на сервере."
+
+msgid "Anonymous VK TURN path: vkcalls or legacy."
+msgstr "Путь анонимного доступа к VK TURN: vkcalls или legacy."
+
+msgid "Direct mode: RTP-obfs AEAD over TURN without DTLS. The server has to be started with -listen-direct, or the tunnel will not come up."
+msgstr "Прямой режим: RTP-obfs AEAD поверх TURN без DTLS. Сервер должен быть запущен с -listen-direct, иначе туннель не поднимется."
+
+msgid "Reach the TURN relay over TCP instead of UDP. Works around UDP throttling on some networks, for example Rostelecom."
+msgstr "Подключаться к TURN по TCP вместо UDP. Обходит ограничение UDP в некоторых сетях, например у Ростелекома."
