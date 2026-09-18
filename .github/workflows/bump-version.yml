@@ -112,13 +112,23 @@ jobs:
           git commit -qam "release: $new"
           git push -q origin "release/v$new"
 
+          body=$(cat <<EOF
+          Bumps \`PKG_VERSION\` to \`$new\` and resets \`PKG_RELEASE\` to \`1\` in:
+
+          - \`qwdtt\`
+          - \`qwdtt-client\`
+          - \`luci-app-qwdtt\`
+
+          Merging this PR will publish version: \`$new\`
+
+          The release workflow runs automatically on merge and will create the corresponding tag: \`v$new\`
+          EOF
+          )
+
           # Build does run on this pull request, but only as far as the
           # changes job lets it: a release/v* branch is a version bump by
           # construction, and the release that follows the merge rebuilds
           # everything before it publishes anything.
           gh pr create --base main --head "release/v$new" \
             --title "release: $new" \
-            --body "Bumps PKG_VERSION to $new in qwdtt, qwdtt-client and
-          luci-app-qwdtt, and resets PKG_RELEASE to 1.
-
-          Merging this publishes $new: Release runs on the merge and tags it."
+            --body "$body"
