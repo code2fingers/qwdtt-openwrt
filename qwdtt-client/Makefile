@@ -69,6 +69,26 @@ define Package/qwdtt-client/install
 	$(INSTALL_BIN) ./files/qwdtt.defaults $(1)/etc/uci-defaults/99-qwdtt
 endef
 
+# Bring the tunnels down while there is still a protocol handler to do it with.
+# Nothing else stops them: netifd started the client and goes on supervising it,
+# so removing the files underneath leaves the process running on an inode that
+# is already unlinked, carrying the LAN through a tunnel whose firewall zone
+# postrm has just taken away. The device is deleted here rather than by the
+# handler's teardown, which keeps it on purpose so that a restarting tunnel
+# holds its interface index.
+define Package/qwdtt-client/prerm
+#!/bin/sh
+[ -n "$${IPKG_INSTROOT}" ] && exit 0
+
+for tunnel in $$(uci -q show network | \
+	sed -n "s/^network\.\([^.=]*\)\.proto='qwdtt'$$/\1/p"); do
+	ifdown "$$tunnel" 2>/dev/null
+	ip link del "$$tunnel" 2>/dev/null
+done
+
+exit 0
+endef
+
 # The counterpart to the zone that files/qwdtt.defaults writes at install: the
 # zone, the forwarding it needs and the per-tunnel SNAT rules the up-script
 # adds. Left behind, they describe devices that no longer exist and fw4 carries
@@ -90,6 +110,20 @@ uci commit firewall
 # restart, not reload: a reload rewrites the rules but leaves the departed
 # zone's own chains in the live ruleset, empty and unreferenced.
 [ ! -x /etc/init.d/firewall ] || /etc/init.d/firewall restart >/dev/null 2>&1
+
+# The kill switch is the one leftover that does harm rather than merely sitting
+# there. It is an unreachable default in the tunnel's own table, and with the
+# tunnel gone that table holds nothing else, so the rule steering the LAN into
+# it refuses everything - a router that loses its internet on uninstall, and
+# again on every boot after, with no qwdtt left to explain it. The rule is kept:
+# a rule whose table has no matching route falls through to the next one. So is
+# the interface, which is where the credentials are.
+for tunnel in $$(uci -q show network | \
+	sed -n "s/^network\.\([^.=]*\)\.proto='qwdtt'$$/\1/p"); do
+	uci -q delete "network.$${tunnel}_killswitch"
+done
+uci commit network
+[ ! -x /etc/init.d/network ] || /etc/init.d/network reload >/dev/null 2>&1
 
 exit 0
 endef
