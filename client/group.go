@@ -192,6 +192,13 @@ func WorkerGroup(
 				if isStaleBindingError(sessErr) {
 					log.Printf("[WORKER #%d] Uplink changed (%v), waiting for the address to settle", wid, sessErr)
 					waitUplinkSettled(ctx, peer.String(), wid)
+					// Every worker waits on the same address and so returns at
+					// the same instant. Ungated, all nine Allocate together and
+					// VK refuses the lot (error 486).
+					if !acquireRotation(ctx) {
+						return
+					}
+					time.AfterFunc(rotationSpacing, func() { <-rotationGate })
 					continue
 				}
 
