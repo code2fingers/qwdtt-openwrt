@@ -1,0 +1,109 @@
+#!/bin/sh
+# /etc/config/qwdtt is gone: a tunnel is a netifd interface now, so every
+# section it holds becomes one, and the file is set aside rather than deleted
+# so its old values can still be read.
+#
+# The client's own policy routing has no direct counterpart and is rebuilt out
+# of standard sections: route_table becomes the interface's ip4table,
+# rule_priority and fwmark become the `config rule` that looks that table up,
+# and the kill switch - traffic held rather than released to the WAN while the
+# tunnel is down - becomes an unreachable default route in the same table, at a
+# metric the tunnel's own route beats. Anything that does not map is logged by
+# name rather than dropped quietly.
+
+OLD=${QWDTT_CONFIG:-/etc/config/qwdtt}
+KILL_METRIC=4096
+
+[ -f "$OLD" ] || exit 0
+
+say() { logger -t qwdtt "$*"; }
+get() { uci -q get "qwdtt.$1.$2"; }
+
+copy() {
+	local value
+
+	value=$(get "$1" "$2")
+	[ -z "$value" ] || uci -q set "network.$1.$3=$value"
+}
+
+migrated=0
+
+for sec in $(uci -q show qwdtt | sed -n "s/^qwdtt\.\([^.=]*\)=qwdtt$/\1/p"); do
+	if [ -n "$(uci -q get "network.$sec")" ]; then
+		say "qwdtt.$sec: network.$sec exists already, leaving both alone"
+		continue
+	fi
+
+	table=$(get "$sec" route_table)
+	table=${table:-51820}
+	priority=$(get "$sec" rule_priority)
+	priority=${priority:-10000}
+	mark=$(get "$sec" fwmark)
+	lan=$(get "$sec" lan_interface)
+	mode=$(get "$sec" mode)
+
+	uci -q set "network.$sec=interface"
+	uci -q set "network.$sec.proto=qwdtt"
+	uci -q set "network.$sec.ip4table=$table"
+	[ "$(get "$sec" enabled)" = 1 ] || uci -q set "network.$sec.disabled=1"
+
+	copy "$sec" peer_host    peer_host
+	copy "$sec" peer_port    peer_port
+	copy "$sec" password     password
+	copy "$sec" device_id    device_id
+	# device_id has no default any more, and the server knows a device by it
+	# and nothing else. A section that left it out was reaching the server as
+	# the retired client's constant, so that constant is written out rather
+	# than left for the handler to refuse or for a new value to replace.
+	[ -n "$(get "$sec" device_id)" ] || uci -q set "network.$sec.device_id=openwrt"
+	copy "$sec" workers      workers
+	copy "$sec" dns          go_dns
+	copy "$sec" obfs         obfs
+	copy "$sec" captcha_mode captcha_mode
+	copy "$sec" vk_auth      vk_auth
+	copy "$sec" vk_anon_path vk_anon_path
+	copy "$sec" no_dtls      no_dtls
+	copy "$sec" turn_tcp     turn_tcp
+
+	for hash in $(get "$sec" hash); do
+		uci -q add_list "network.$sec.hash=$hash"
+	done
+
+	# The rule the client used to add for itself. `in` names a logical
+	# interface where lan_interface named a device, and lan is the interface
+	# br-lan belongs to in a stock configuration; a router that arranged its
+	# LAN differently has to correct this, which is why the old value is
+	# logged rather than guessed at.
+	uci -q set "network.${sec}_rule=rule"
+	uci -q set "network.${sec}_rule.lookup=$table"
+	uci -q set "network.${sec}_rule.priority=$priority"
+	if [ -n "$mark" ]; then
+		uci -q set "network.${sec}_rule.mark=$mark"
+	else
+		uci -q set "network.${sec}_rule.in=lan"
+	fi
+
+	# Attached to loopback so that it outlives the tunnel: a route attached to
+	# the tunnel itself would disappear exactly when it is needed.
+	uci -q set "network.${sec}_killswitch=route"
+	uci -q set "network.${sec}_killswitch.interface=loopback"
+	uci -q set "network.${sec}_killswitch.target=0.0.0.0/0"
+	uci -q set "network.${sec}_killswitch.type=unreachable"
+	uci -q set "network.${sec}_killswitch.table=$table"
+	uci -q set "network.${sec}_killswitch.metric=$KILL_METRIC"
+
+	say "qwdtt.$sec is now network.$sec: route_table $table is its ip4table, rule_priority $priority is network.${sec}_rule"
+	[ -z "$lan" ] || [ "$lan" = br-lan ] ||
+		say "qwdtt.$sec: lan_interface was $lan, and network.${sec}_rule selects the lan interface instead; correct it if those are not the same network"
+	[ -z "$mode" ] || [ "$mode" = rawtun ] ||
+		say "qwdtt.$sec: mode $mode is not carried over, this build only ever ran rawtun"
+
+	migrated=$((migrated + 1))
+done
+
+uci commit network
+mv "$OLD" "$OLD.migrated"
+say "$OLD has been converted into $migrated interface(s) and set aside as $OLD.migrated"
+
+[ "$migrated" = 0 ] || [ ! -x /etc/init.d/network ] || /etc/init.d/network reload
+exit 0

@@ -1,4 +1,4 @@
-# Bumps PKG_VERSION in the three packages together and opens the release pull
+# Bumps PKG_VERSION in both packages together and opens the release pull
 # request. Merging that request is the whole release: Release runs on the push
 # to main and creates the tag itself, once the build and the feed have passed.
 #
@@ -52,9 +52,9 @@ jobs:
             exit 1
           fi
 
-          MKS="qwdtt/Makefile qwdtt-client/Makefile luci-app-qwdtt/Makefile"
+          MKS="qwdtt-client/Makefile luci-proto-qwdtt/Makefile"
 
-          # The three have to agree already. If they do not, the repository is
+          # The two have to agree already. If they do not, the repository is
           # in a state no single version describes, and a bump would only carry
           # the disagreement forward under a new number.
           cur=""
@@ -115,9 +115,8 @@ jobs:
           body=$(cat <<EOF
           Bumps \`PKG_VERSION\` to \`$new\` and resets \`PKG_RELEASE\` to \`1\` in:
 
-          - \`qwdtt\`
           - \`qwdtt-client\`
-          - \`luci-app-qwdtt\`
+          - \`luci-proto-qwdtt\`
 
           Merging this PR will publish version: \`$new\`
 

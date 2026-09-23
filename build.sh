@@ -3,10 +3,10 @@
 set -eu
 
 FEEDNAME=qwdtt
-# All three, on both SDKs. qwdtt and qwdtt-client would come in as dependencies
-# of luci-app-qwdtt anyway, but naming them explicitly is what makes them
-# asserted below, and keeps them building if that dependency ever goes away.
-PACKAGES='luci-app-qwdtt qwdtt qwdtt-client'
+# Both, on both SDKs. qwdtt-client would come in as a dependency of
+# luci-proto-qwdtt anyway, but naming it explicitly is what makes it asserted
+# below, and keeps it building if that dependency ever goes away.
+PACKAGES='luci-proto-qwdtt qwdtt-client'
 # The '#v11' is a git ref for docker build, and it pins the same tag the
 # workflow does. Without it this tracked the action's default branch while CI
 # tracked whatever it had at the time, so the two could diverge silently.
@@ -50,8 +50,8 @@ usage: ./build.sh <command> [package...]
 
 Naming packages builds only those:
 
-  ./build.sh apk qwdtt              just the control script and service layer
-  ./build.sh apk luci-app-qwdtt     just the page (and its translations)
+  ./build.sh apk qwdtt-client       just the client and the protocol handler
+  ./build.sh apk luci-proto-qwdtt   just the web interface (and its translations)
 
 Expect a modest saving, not a fast loop. Most of a local run is fixed SDK
 setup -- feeds, defconfig and the toolchain -- which happens whatever is
@@ -87,8 +87,9 @@ build() {
 		_pkgs="$*"
 	fi
 
-	# qwdtt-client installs a prebuilt binary, and qwdtt depends on it, so the
-	# SDK needs one staged whatever is being built. Both SDKs here are x86_64.
+	# qwdtt-client installs a prebuilt binary, and luci-proto-qwdtt depends on
+	# it, so the SDK needs one staged whatever is being built. Both SDKs here
+	# are x86_64.
 	echo "--- cross-compiling the client"
 	( cd client && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
 		go build -tags=openwrt -trimpath -ldflags="-s -w" \
@@ -121,9 +122,12 @@ build() {
 	echo "--- built:"
 	find "$_out/bin" -type f \( -name '*.ipk' -o -name '*.apk' \) | sort
 
+	# luci.mk emits the translation package from the LuCI one's po/ rather
+	# than from a directory of its own, so it cannot be named in PACKAGES and
+	# has to be expected here instead.
 	_expect=$_pkgs
 	case " $_pkgs " in
-	*" luci-app-$FEEDNAME "*) _expect="$_pkgs luci-i18n-$FEEDNAME-ru" ;;
+	*" luci-proto-$FEEDNAME "*) _expect="$_pkgs luci-i18n-$FEEDNAME-ru" ;;
 	esac
 
 	for _want in $_expect; do

@@ -83,7 +83,7 @@ jobs:
           fi
 
           # A release/v* branch carries one thing by construction: PKG_VERSION
-          # in the three Makefiles, which Bump version has already checked is
+          # in both Makefiles, which Bump version has already checked is
           # x.y.z and which the version job checks again before publishing.
           # Building it here spent about 18 minutes reproving that, and the
           # release the merge starts rebuilds all of it anyway, before anything
@@ -99,7 +99,7 @@ jobs:
           fi
 
           # The merge of that same bump lands here as a push, and its diff is
-          # the three Makefiles, so the gate below would build the packages a
+          # both Makefiles, so the gate below would build the packages a
           # second time. release.yml runs on this very push and calls this
           # workflow with full: true, which is the copy that gets published --
           # 35 minutes of the two packages jobs, for artifacts nobody reads.
@@ -110,7 +110,7 @@ jobs:
           # above.
           if [ "${{ github.event_name }}" = "push" ] &&
              [ "${{ github.ref }}" = "refs/heads/main" ]; then
-            v=$(sed -n 's/^PKG_VERSION:=[[:space:]]*//p' qwdtt/Makefile |
+            v=$(sed -n 's/^PKG_VERSION:=[[:space:]]*//p' qwdtt-client/Makefile |
                 tr -d '[:space:]')
             if [ -n "$v" ] && ! git rev-parse -q --verify "refs/tags/v$v" >/dev/null; then
               echo "v$v is unreleased; the Release run on this push builds it"
@@ -160,7 +160,7 @@ jobs:
           # map and the installer are only exercised by a release otherwise, so
           # a break in them surfaces with a tag pushed rather than on the PR.
           if echo "$changed" |
-             grep -qE '^(qwdtt|luci-app-qwdtt|qwdtt-client|assets|keys)/|^\.github/(workflows|scripts)/|^\.github/openwrt-targets\.json$|^(install|build)\.sh$'; then
+             grep -qE '^(luci-proto-qwdtt|qwdtt-client|assets|keys)/|^\.github/(workflows|scripts)/|^\.github/openwrt-targets\.json$|^(install|build)\.sh$'; then
             echo "packages=true" >> "$GITHUB_OUTPUT"
           else
             echo "packages=false" >> "$GITHUB_OUTPUT"
@@ -204,6 +204,29 @@ jobs:
       - name: test
         working-directory: client
         run: go test -tags=openwrt ./...
+
+      # The protocol handler decides what the client is started with and
+      # which configurations are refused, the conversion runs once on a router
+      # that already carries traffic, and every way either can be wrong is
+      # quiet. Nothing else here runs shell from the packages, so this is where
+      # it goes.
+      - name: netifd protocol handler
+        run: sh qwdtt-client/tests/proto.sh
+
+      - name: config conversion
+        run: sh qwdtt-client/tests/migrate.sh
+
+      # An untranslated string does not fail: LuCI falls back to the English
+      # source, and the page still renders. The users this project has are
+      # Russian-speaking, so it has to be caught here or not at all.
+      - name: LuCI translations
+        run: node luci-proto-qwdtt/tests/po.js
+
+      # The routing flags write sections the operator is invited to edit by
+      # hand afterwards, and a save that quietly undoes that edit looks like
+      # nothing at all until the traffic goes the wrong way.
+      - name: LuCI routing options
+        run: node luci-proto-qwdtt/tests/options.js
 
   client:
     name: client ${{ matrix.name }}
@@ -252,10 +275,9 @@ jobs:
         run: go build -tags=openwrt -trimpath -ldflags="-s -w" -o ../dist/qwdtt-client .
 
       # The binary and its licence, nothing else. The archive used to carry an
-      # installer and a files/ tree, but those shipped a second /etc/init.d/qwdtt
-      # and /etc/config/qwdtt on a UCI schema the LuCI page does not use, so the
-      # two install paths contradicted each other. Packages are the install
-      # path now; this is for dropping the binary somewhere by hand.
+      # installer and a service of its own, on a UCI schema nothing else read,
+      # so the two install paths contradicted each other. Packages are the
+      # install path now; this is for dropping the binary somewhere by hand.
       - name: Pack archive
         run: |
           cp LICENSE dist/
@@ -300,8 +322,8 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: client/go.sum
 
-      # qwdtt depends on qwdtt-client, so the SDK builds that here too and needs
-      # its binary staged. Both SDKs in this matrix are x86_64.
+      # luci-proto-qwdtt depends on qwdtt-client, so the SDK builds that here
+      # too and needs its binary staged. Both SDKs in this matrix are x86_64.
       - name: Cross-compile and stage the client
         working-directory: client
         env:
@@ -322,17 +344,17 @@ jobs:
           CONTAINER: ghcr.io/openwrt/sdk
           ARCH: ${{ matrix.arch }}
           FEEDNAME: qwdtt
-          # qwdtt-client is not named here, but qwdtt depends on it, so the SDK
-          # builds it anyway. The upload below drops it: client-packages is
-          # what publishes it, once per architecture.
+          # qwdtt-client is not named here, but luci-proto-qwdtt depends on
+          # it, so the SDK builds it anyway. The upload below drops it:
+          # client-packages is what publishes it, once per architecture.
           #
           # Only source packages are named. PACKAGES becomes
           # `make package/<name>/download`, so each entry must be a package
           # DIRECTORY -- and luci-i18n-qwdtt-ru is not one. luci.mk defines it
-          # from the app's own Makefile by scanning po/*, so listing it fails
-          # with "No rule to make target". Building luci-app-qwdtt emits it;
-          # the next step asserts that.
-          PACKAGES: luci-app-qwdtt qwdtt
+          # from the package's own Makefile by scanning po/*, so listing it
+          # fails with "No rule to make target". Building luci-proto-qwdtt
+          # emits it; the next step asserts that.
+          PACKAGES: luci-proto-qwdtt
 
       - name: Show what was produced
         run: |
@@ -341,7 +363,7 @@ jobs:
           # because -o binds looser than the implicit AND, so an action written
           # after the -o applies only to the second branch.
           find bin -type f \( -name '*.ipk' -o -name '*.apk' \) -print | sort
-          for want in luci-app-qwdtt luci-i18n-qwdtt-ru qwdtt; do
+          for want in luci-proto-qwdtt luci-i18n-qwdtt-ru; do
             n=$(find bin/packages -type f \
                   \( -name "$want*.ipk" -o -name "$want*.apk" \) | wc -l)
             echo "$want: $n"

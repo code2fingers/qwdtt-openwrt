@@ -1,0 +1,195 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Project-Id-Version: luci-proto-qwdtt\n"
+"Language: ru\n"
+"Plural-Forms: nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2);\n"
+
+msgid "qWDTT"
+msgstr "qWDTT"
+
+msgid "not a VK call link or a hash"
+msgstr "не ссылка на звонок VK и не хеш"
+
+msgid "expected %d characters, got %d"
+msgstr "ожидается символов: %d, получено: %d"
+
+msgid "unexpected character \"%s\""
+msgstr "недопустимый символ \"%s\""
+
+msgid "This interface name is longer than 15 characters, so the tunnel cannot come up: the name is also the TUN device, and the kernel takes 15."
+msgstr "Имя этого интерфейса длиннее 15 символов, поэтому туннель не поднимется: имя - это еще и имя TUN-устройства, а ядро принимает 15 символов."
+
+msgid "Peer host"
+msgstr "Адрес сервера"
+
+msgid "Server hostname or IPv4 address."
+msgstr "Имя хоста или IPv4-адрес сервера."
+
+msgid "Peer port"
+msgstr "Порт сервера"
+
+msgid "Default: %s."
+msgstr "По умолчанию: %s."
+
+msgid "off"
+msgstr "выкл"
+
+msgid "on"
+msgstr "вкл"
+
+msgid "UDP port of the server RAW listener."
+msgstr "UDP-порт RAW-слушателя на сервере."
+
+msgid "Password"
+msgstr "Пароль"
+
+msgid "Connection password, as set on the server."
+msgstr "Пароль подключения, заданный на сервере."
+
+msgid "Hashes"
+msgstr "Хеши"
+
+msgid "Added one at a time with the button below, which takes either the %d-character hash or a whole VK call link and reduces the link to the hash it denotes. At least one is required -- the client selects a hash modulo the list length, so an empty list cannot work."
+msgstr "Добавляются по одному кнопкой ниже: она принимает либо хеш из %d символов, либо целиком ссылку на звонок VK и приводит ссылку к хешу. Нужен хотя бы один: клиент выбирает хеш по остатку от деления на длину списка, поэтому пустой список работать не может."
+
+msgid "Hash or VK call link"
+msgstr "Хеш или ссылка на звонок VK"
+
+msgid "Add hash"
+msgstr "Добавить хеш"
+
+msgid "This hash is already in the list."
+msgstr "Этот хеш уже есть в списке."
+
+msgid "Device ID"
+msgstr "Идентификатор устройства"
+
+msgid "Identifies this tunnel to the server, which knows it by this and nothing else. Two tunnels that share one are a single device to it and it disconnects them in turn, so each needs its own."
+msgstr "Идентифицирует этот туннель на сервере, который знает его только по этому значению. Два туннеля с одинаковым идентификатором для него - одно устройство, и он отключает их по очереди, поэтому каждому нужен свой."
+
+msgid "Route LAN client traffic through this tunnel"
+msgstr "Маршрутизировать трафик LAN-клиентов в этот туннель"
+
+msgid "Writes an ordinary routing rule sending traffic from the lan interface to the routing table of this tunnel. Edit it afterwards on Network -> Routing - to send one client or one destination instead of the whole LAN, narrow it there and it stays narrowed; only the table it looks up is kept in step from here."
+msgstr "Записывает обычное правило маршрутизации, отправляющее трафик интерфейса lan в таблицу маршрутизации этого туннеля. Правило можно отредактировать на странице Сеть -> Маршрутизация: чтобы направить в туннель одного клиента или одно назначение вместо всей локальной сети, сузьте его там - таким оно и останется; отсюда обновляется только номер таблицы."
+
+msgid "This needs \"Use default gateway\" under Advanced Settings: without it the tunnel adds no default route for the rule to find, and the LAN would reach nothing."
+msgstr "Для этого нужен включённый параметр \"Использовать шлюз по умолчанию\" в дополнительных настройках: без него туннель не добавляет маршрут по умолчанию, и правилу нечего будет найти, а локальная сеть останется без доступа."
+
+msgid "Do not allow traffic if the tunnel is down (kill switch)."
+msgstr "Не пропускать трафик, если туннель не работает (килл-свитч)"
+
+msgid "Writes an unreachable default route into the routing table of this tunnel, so traffic sent there is refused rather than released to the WAN whenever the tunnel is not up. Independent of the rule above: it covers whatever looks up that table, including a rule written by hand."
+msgstr "Записывает в таблицу маршрутизации этого туннеля недостижимый маршрут по умолчанию, чтобы направленный туда трафик отбрасывался, а не уходил в WAN, пока туннель не поднят. Не зависит от правила выше: действует для всего, что обращается к этой таблице, включая правило, написанное вручную."
+
+msgid "Workers"
+msgstr "Воркеры"
+
+msgid "Parallel sessions, started in groups of %d. One VK call sustains three groups before its relay quota starts refusing, so the ceiling is %d per hash and up to %d hashes count towards it: %d, %d, %d, %d. With a VK account it is %d in all, which is about what one account is given."
+msgstr "Параллельные сессии, запускаются группами по %d. Один звонок VK выдерживает три группы, после чего его квота на relay начинает отказывать, поэтому предел - %d на хеш, и учитывается до %d хешей: %d, %d, %d, %d. С аккаунтом VK - %d всего, примерно столько дается одному аккаунту."
+
+msgid "At least one worker is needed."
+msgstr "Нужен хотя бы один воркер."
+
+msgid "A VK account is given about %d relays, so at most %d workers."
+msgstr "Аккаунту VK дается примерно %d relay, поэтому воркеров не больше %d."
+
+msgid "Workers are started in groups of %d, so this has to be a multiple of %d."
+msgstr "Воркеры запускаются группами по %d, поэтому значение должно делиться на %d."
+
+msgid "%d hash(es) sustain %d workers. Add a hash for %d more, up to %d of them."
+msgstr "Хешей %d - это %d воркеров. Добавьте еще один хеш ради еще %d, всего хешей может быть %d."
+
+msgid "DNS for VK"
+msgstr "DNS для VK"
+
+msgid "Resolver the client uses to reach VK, which is not the resolver the tunnel hands out: yandex, cloudflare or google, their doh- variants, or custom:IP and doh:URL."
+msgstr "Резолвер, через который клиент находит VK - это не тот резолвер, который раздает туннель: yandex, cloudflare или google, их doh-варианты, либо custom:IP и doh:URL."
+
+msgid "Obfuscation"
+msgstr "Обфускация"
+
+msgid "What the tunnel is disguised as inside the VK call."
+msgstr "Подо что туннель маскируется внутри звонка VK."
+
+msgid "audio"
+msgstr "аудио"
+
+msgid "video"
+msgstr "видео"
+
+msgid "Captcha mode"
+msgstr "Режим капчи"
+
+msgid "How a VK captcha is answered. auto tries the built-in solver and falls back."
+msgstr "Как отвечать на капчу VK. auto сначала пробует встроенный решатель, затем запасные пути."
+
+msgid "VK authorization"
+msgstr "Авторизация VK"
+
+msgid "anonymous joins the call without an account. account uses TURN credentials from a VK account, read from the file below."
+msgstr "anonymous подключается к звонку без учетной записи. account использует учетные данные TURN от аккаунта VK, прочитанные из файла ниже."
+
+msgid "anonymous"
+msgstr "анонимно"
+
+msgid "account"
+msgstr "по аккаунту"
+
+msgid "Anonymous path"
+msgstr "Анонимный путь"
+
+msgid "Which VK endpoint an anonymous join goes through."
+msgstr "Через какую точку входа VK проходит анонимное подключение."
+
+msgid "VK credentials file"
+msgstr "Файл учетных данных VK"
+
+msgid "File holding the TURN credentials of a VK account. Without it, account authorization has nothing to authorize with."
+msgstr "Файл с учетными данными TURN от аккаунта VK. Без него авторизации по аккаунту нечем авторизоваться."
+
+msgid "Disable DTLS"
+msgstr "Отключить DTLS"
+
+msgid "Direct mode: RTP-obfs AEAD over TURN without DTLS. The server has to be started with -listen-direct, or the tunnel will not come up."
+msgstr "Прямой режим: RTP-obfs AEAD поверх TURN без DTLS. Сервер должен быть запущен с -listen-direct, иначе туннель не поднимется."
+
+msgid "TURN over TCP"
+msgstr "TURN через TCP"
+
+msgid "Reach the TURN relay over TCP instead of UDP. Works around UDP throttling on some networks, for example Rostelecom."
+msgstr "Подключаться к TURN по TCP вместо UDP. Обходит ограничение UDP в некоторых сетях, например у Ростелекома."
+
+msgid "No server address is set"
+msgstr "Не задан адрес сервера"
+
+msgid "No VK call hash is set"
+msgstr "Не задан ни один хеш звонка VK"
+
+msgid "The interface name is longer than the 15 characters a TUN device may have"
+msgstr "Имя интерфейса длиннее 15 символов, а столько принимает имя TUN-устройства"
+
+msgid "No routing table is set, and the tunnel cannot use the main one: its default route would carry the client's own traffic to VK"
+msgstr "Не задана таблица маршрутизации, а основную туннель использовать не может: его маршрут по умолчанию увел бы в туннель и собственный трафик клиента к VK"
+
+msgid "No device ID is set"
+msgstr "Не задан идентификатор устройства"
+
+msgid "Another qWDTT interface already uses this device ID"
+msgstr "Этот идентификатор устройства уже занят другим интерфейсом qWDTT"
+
+msgid "The server rejected the connection password"
+msgstr "Сервер не принял пароль подключения"
+
+msgid "The connection password has expired"
+msgstr "Срок действия пароля подключения истек"
+
+msgid "The connection password belongs to another device ID. One password is bound to one device, so a second router needs its own."
+msgstr "Пароль подключения принадлежит другому идентификатору устройства. Один пароль привязан к одному устройству, поэтому второму роутеру нужен свой."
+
+msgid "The server refused this tunnel. Check the password and the device ID."
+msgstr "Сервер отказал этому туннелю. Проверьте пароль и идентификатор устройства."
+
+msgid "The VK call behind this hash is closed. Replace the hash."
+msgstr "Звонок VK, которому принадлежит этот хеш, закрыт. Замените хеш."

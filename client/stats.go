@@ -1,11 +1,12 @@
 package main
 
-import (
-	"log"
-	"sync/atomic"
-	"time"
-)
+import "sync/atomic"
 
+// Counted on the data path by the dispatcher and the sessions, and printed by
+// nobody: a [STATS] line every three seconds is 28 thousand a day in a ring
+// buffer the router shares with everything else, and the tunnel device's own
+// counters say the same thing - which is what netifd reports and the status
+// page shows.
 type Stats struct {
 	TotalBytesUp      atomic.Int64
 	TotalBytesDown    atomic.Int64
@@ -14,25 +15,4 @@ type Stats struct {
 
 func NewStats() *Stats {
 	return &Stats{}
-}
-
-func (s *Stats) RunLoop(shutdown <-chan struct{}) {
-	ticker := time.NewTicker(3 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-shutdown:
-			return
-		case <-ticker.C:
-			active := s.ActiveConnections.Load()
-			up := s.TotalBytesUp.Load()
-			down := s.TotalBytesDown.Load()
-			totalMB := float64(up+down) / (1024.0 * 1024.0)
-			upMB := float64(up) / (1024.0 * 1024.0)
-			downMB := float64(down) / (1024.0 * 1024.0)
-
-			log.Printf("[STATS] Active: %d | Traffic: %.2f MB | down %.2f MB / up %.2f MB", active, totalMB, downMB, upMB)
-		}
-	}
 }

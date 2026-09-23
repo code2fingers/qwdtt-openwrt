@@ -228,14 +228,28 @@ func main() {
 	turnTCP := flag.Bool("turn-tcp", fileConfig.TurnTCP, "connect to the TURN relay over TCP instead of UDP (works around UDP throttling on some networks, e.g. Rostelecom)")
 	tunFdSock := flag.String("tun-fd-sock", "", "unix socket for receiving the TUN fd from Android (only with -mode rawtun)")
 	tunName := flag.String("tun-name", fileConfig.TunName, "Linux/OpenWrt TUN interface name")
-	lanInterface := flag.String("lan-interface", fileConfig.LANInterface, "OpenWrt LAN interface routed through RAW TUN")
+	netifd := flag.Bool("netifd", false, "hand the RAW config to netifd through "+netifdUpScript+" instead of configuring the TUN directly")
 	rawTunSelfTest := flag.String("rawtun-self-test", "", "create a temporary OpenWrt RAW TUN with this IPv4 address")
 	rawTunSelfTestDuration := flag.Duration("rawtun-self-test-duration", 5*time.Second, "temporary RAW TUN self-test duration")
 
 	flag.Parse()
+	// netifd already prefixes each line of a protocol task with the interface
+	// it belongs to, and syslog already dates it. Repeating either is what put
+	// two clocks on one line, the second of them in UTC while syslog's is
+	// local.
+	if *netifd {
+		log.SetFlags(0)
+		netifdManaged = true
+	}
 	if *rawTunSelfTest != "" {
-		tun, testErr := createNativeRawTUN(*tunName, *lanInterface, *rawTunSelfTest, 1300)
+		tun, testErr := createNativeRawTUN(*tunName)
 		if testErr != nil {
+			log.Fatalf("[RAW SELF-TEST] %v", testErr)
+		}
+		// The device persists, so a failure here has to take it away as well:
+		// the point of the self-test is that it leaves the router unchanged.
+		if testErr = tun.configure(*rawTunSelfTest, 1300); testErr != nil {
+			tun.destroy()
 			log.Fatalf("[RAW SELF-TEST] %v", testErr)
 		}
 		log.Printf("[RAW SELF-TEST] TUN %s is up on %s", tun.name, *rawTunSelfTest)
@@ -243,7 +257,7 @@ func main() {
 		case <-ctx.Done():
 		case <-time.After(*rawTunSelfTestDuration):
 		}
-		tun.cleanup()
+		tun.destroy()
 		log.Printf("[RAW SELF-TEST] success")
 		return
 	}
@@ -330,6 +344,8 @@ func main() {
 		}
 		*numW = (*numW / workersPerGroup) * workersPerGroup
 	}
+
+	netifdWorkerSlots = *numW
 
 	tp := &TurnParams{
 		Host:         *host,
@@ -421,12 +437,6 @@ func main() {
 	log.Println("[CLIENT] ═══════════════════════════════════════")
 
 	stats := NewStats()
-	shutdownCh := make(chan struct{})
-	go func() {
-		<-ctx.Done()
-		close(shutdownCh)
-	}()
-	go stats.RunLoop(shutdownCh)
 
 	var disp *Dispatcher
 	if activeConnMode == "rawtun" {
@@ -486,7 +496,17 @@ func main() {
 						cancel()
 						return
 					}
-					nativeTun, nativeErr := createNativeRawTUN(*tunName, *lanInterface, ip, mtu)
+					nativeTun, nativeErr := createNativeRawTUN(*tunName)
+					if nativeErr == nil {
+						if *netifd {
+							nativeErr = notifyNetifd(nativeTun.name, ip, dnsCSV, mtu)
+						} else {
+							nativeErr = nativeTun.configure(ip, mtu)
+						}
+						if nativeErr != nil {
+							nativeTun.cleanup()
+						}
+					}
 					if nativeErr != nil {
 						log.Printf("[RAW] Linux/OpenWrt TUN error: %v", nativeErr)
 						cancel()
@@ -494,7 +514,7 @@ func main() {
 					}
 					context.AfterFunc(ctx, nativeTun.cleanup)
 					tunFile = nativeTun.file
-					log.Printf("[RAW] OpenWrt TUN %s is up, LAN %s routed into the tunnel", nativeTun.name, nativeTun.lanInterface)
+					log.Printf("[RAW] OpenWrt TUN %s is up on %s", nativeTun.name, ip)
 				}
 				disp.AttachTUN(tunFile)
 				log.Println("[RAW] TUN attached, traffic is flowing")

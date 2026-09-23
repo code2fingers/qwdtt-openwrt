@@ -1,0 +1,82 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+//
+// What netifd does not know about a running tunnel. Addresses, uptime and byte
+// totals come off the interface for free now that it owns them; what it cannot
+// tell anyone is where those totals stood when the tunnel last came up, how
+// the client's sessions are doing - how many are carrying traffic, how many
+// have had to be rebuilt, how long there has been an unbroken one - and which
+// VK relays they are carrying it over.
+//
+// All of it is files under /var/run/qwdtt, written by the pieces that know:
+// /lib/netifd/qwdtt-up.sh records the counters at the moment it reports the
+// interface up, and the client rewrites the worker count and the relay list
+// whenever a session arrives or leaves. tmpfs, so they last exactly as long as
+// the tunnel device does.
+
+'use strict';
+
+import { lsdir, open } from 'fs';
+
+const RUNDIR = '/var/run/qwdtt';
+
+function numbers(path, want) {
+	const fd = open(path, 'r');
+	if (!fd)
+		return null;
+
+	const fields = split(trim(fd.read('line') ?? ''), ' ');
+	fd.close();
+
+	if (length(fields) != want)
+		return null;
+
+	return map(fields, (v) => +v);
+}
+
+function words(path) {
+	const fd = open(path, 'r');
+	if (!fd)
+		return [];
+
+	const line = trim(fd.read('line') ?? '');
+	fd.close();
+
+	return length(line) ? split(line, ' ') : [];
+}
+
+const methods = {
+	getRuntime: {
+		call: function() {
+			const out = {};
+
+			for (let entry in (lsdir(RUNDIR) ?? [])) {
+				const counters = match(entry, /^(.+)\.counters$/);
+				if (!counters)
+					continue;
+
+				const name = counters[1];
+				const base = numbers(`${RUNDIR}/${entry}`, 4);
+				const workers = numbers(`${RUNDIR}/${name}.workers`, 4);
+				const relays = words(`${RUNDIR}/${name}.relays`);
+
+				out[name] = {
+					rx_bytes: base ? base[0] : null,
+					rx_packets: base ? base[1] : null,
+					tx_bytes: base ? base[2] : null,
+					tx_packets: base ? base[3] : null,
+					workers_active: workers ? workers[0] : null,
+					workers_total: workers ? workers[1] : null,
+					reconnects: workers ? workers[2] : null,
+					// Resolved against the router's clock rather than handed
+					// over raw: the browser's may be anywhere.
+					connected_for: (workers && workers[3]) ? time() - workers[3] : null,
+					relays: relays
+				};
+			}
+
+			return out;
+		}
+	}
+};
+
+return { 'luci.qwdtt': methods };

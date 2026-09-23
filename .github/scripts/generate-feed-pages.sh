@@ -149,13 +149,13 @@ for reldir in "$SITE"/releases/*/; do
 				printf 'wget -O /etc/apk/keys/qwdtt.pem %s/qwdtt.pem\n' "$BASE"
 				printf 'echo "%s/packages.adb" > /etc/apk/repositories.d/qwdtt.list\n' "$feed"
 				printf 'apk update\n```\n'
-				printf '\n## Install\n\n```sh\napk add qwdtt-client qwdtt luci-app-qwdtt\n```\n'
+				printf '\n## Install\n\n```sh\napk add qwdtt-client luci-proto-qwdtt\n```\n'
 			else
 				printf 'mkdir -p /etc/opkg/keys\n'
 				printf 'wget -O /etc/opkg/keys/%s %s/qwdtt-usign.pub\n' "$KEYID" "$BASE"
 				printf 'echo "src/gz qwdtt %s" > /etc/opkg/qwdtt.conf\n' "$feed"
 				printf 'opkg update\n```\n'
-				printf '\n## Install\n\n```sh\nopkg install qwdtt-client qwdtt luci-app-qwdtt\n```\n'
+				printf '\n## Install\n\n```sh\nopkg install qwdtt-client luci-proto-qwdtt\n```\n'
 			fi
 
 			printf '\n## Feed files\n\n'

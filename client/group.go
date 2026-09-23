@@ -219,6 +219,7 @@ func WorkerGroup(
 					if strings.Contains(errStr, "хеш мёртв") ||
 						strings.Contains(errStr, "FATAL_AUTH") {
 						log.Printf("[WORKER #%d] Fatal error: %s", wid, errStr)
+						notifyNetifdError(errStr)
 						return
 					}
 

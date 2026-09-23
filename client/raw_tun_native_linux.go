@@ -14,32 +14,19 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-const openWrtRouteTable = "51820"
-
 var interfaceNamePattern = regexp.MustCompile(`^[a-zA-Z0-9_.:-]+$`)
 
 type nativeRawTUN struct {
-	file         *os.File
-	name         string
-	lanInterface string
+	file *os.File
+	name string
 }
 
-func createNativeRawTUN(name, lanInterface, address string, mtu int) (*nativeRawTUN, error) {
+func createNativeRawTUN(name string) (*nativeRawTUN, error) {
 	if name == "" {
 		name = "qwdtt0"
 	}
-	if lanInterface == "" {
-		lanInterface = "br-lan"
-	}
-	if !validInterfaceName(name) || !validInterfaceName(lanInterface) {
+	if !validInterfaceName(name) {
 		return nil, fmt.Errorf("invalid interface name")
-	}
-	ip := net.ParseIP(address).To4()
-	if ip == nil {
-		return nil, fmt.Errorf("invalid raw IPv4 address %q", address)
-	}
-	if mtu < 576 || mtu > 9000 {
-		return nil, fmt.Errorf("invalid MTU %d", mtu)
 	}
 
 	fd, err := unix.Open("/dev/net/tun", unix.O_RDWR|unix.O_CLOEXEC, 0)
@@ -56,60 +43,72 @@ func createNativeRawTUN(name, lanInterface, address string, mtu int) (*nativeRaw
 		unix.Close(fd)
 		return nil, fmt.Errorf("TUNSETIFF: %w", err)
 	}
+	// The device outlives this process, and TUNSETIFF attaches to it again on
+	// the next start. Without that every restart destroys it, and a new one
+	// gets a new interface index: a socket bound to the tunnel with
+	// SO_BINDTODEVICE - curl --interface, iperf3 --bind-dev - then points at
+	// an index that no longer exists and can never send again. Taking the
+	// device away is proto_qwdtt_teardown's job alone.
+	if err := unix.IoctlSetInt(fd, unix.TUNSETPERSIST, 1); err != nil {
+		unix.Close(fd)
+		return nil, fmt.Errorf("TUNSETPERSIST: %w", err)
+	}
 	if err := unix.SetNonblock(fd, false); err != nil {
 		unix.Close(fd)
 		return nil, fmt.Errorf("set blocking TUN: %w", err)
 	}
 
-	t := &nativeRawTUN{
-		file:         os.NewFile(uintptr(fd), "/dev/net/tun"),
-		name:         name,
-		lanInterface: lanInterface,
-	}
-	if err := t.configure(address, mtu); err != nil {
-		t.file.Close()
-		return nil, err
-	}
-	return t, nil
+	return &nativeRawTUN{
+		file: os.NewFile(uintptr(fd), "/dev/net/tun"),
+		name: name,
+	}, nil
 }
 
 func validInterfaceName(name string) bool {
 	return len(name) > 0 && len(name) < unix.IFNAMSIZ && interfaceNamePattern.MatchString(name)
 }
 
+// Only for a client running on its own. Under the netifd protocol handler the
+// address, the MTU and every route belong to netifd, which is told about them
+// through /lib/netifd/qwdtt-up.sh instead.
+//
+// /16 rather than /32: the server hands out addresses from one 10.x.0.0/16 and
+// expects its peers to reach each other directly.
 func (t *nativeRawTUN) configure(address string, mtu int) error {
-	commands := [][]string{
-		{"ip", "addr", "replace", address + "/16", "dev", t.name},
-		{"ip", "link", "set", "dev", t.name, "mtu", strconv.Itoa(mtu), "up"},
+	if net.ParseIP(address).To4() == nil {
+		return fmt.Errorf("invalid raw IPv4 address %q", address)
 	}
-	for _, command := range commands {
-		if err := runNativeCommand(command...); err != nil {
-			return err
-		}
+	if mtu < 576 || mtu > 9000 {
+		return fmt.Errorf("invalid MTU %d", mtu)
 	}
-	_ = runNativeCommand("ip", "route", "flush", "table", openWrtRouteTable)
-	if err := runNativeCommand("ip", "route", "replace", "default", "dev", t.name, "table", openWrtRouteTable); err != nil {
+	if err := runNativeCommand("ip", "addr", "replace", address+"/16", "dev", t.name); err != nil {
 		return err
 	}
-	_ = runNativeCommand("ip", "rule", "del", "iif", t.lanInterface, "lookup", openWrtRouteTable, "priority", "10000")
-	if err := runNativeCommand("ip", "rule", "add", "iif", t.lanInterface, "lookup", openWrtRouteTable, "priority", "10000"); err != nil {
-		return err
-	}
-	if err := os.WriteFile("/proc/sys/net/ipv4/ip_forward", []byte("1\n"), 0644); err != nil {
-		return fmt.Errorf("enable IPv4 forwarding: %w", err)
-	}
-	return nil
+	return runNativeCommand("ip", "link", "set", "dev", t.name, "mtu", strconv.Itoa(mtu), "up")
 }
 
+// Detaching only. The device stays behind on purpose - see TUNSETPERSIST above
+// - so the next client attaches to the same interface index.
 func (t *nativeRawTUN) cleanup() {
 	_ = t.file.Close()
-	_ = runNativeCommand("ip", "rule", "del", "iif", t.lanInterface, "lookup", openWrtRouteTable, "priority", "10000")
-	_ = runNativeCommand("ip", "route", "flush", "table", openWrtRouteTable)
+}
+
+// Everything cleanup deliberately leaves. Only the self-test wants this: it
+// creates a tunnel nobody asked for and has to leave the router as it found it.
+func (t *nativeRawTUN) destroy() {
+	t.cleanup()
 	_ = runNativeCommand("ip", "link", "del", t.name)
 }
 
 func runNativeCommand(args ...string) error {
+	return runNativeCommandEnv(nil, args...)
+}
+
+func runNativeCommandEnv(env []string, args ...string) error {
 	cmd := exec.Command(args[0], args[1:]...)
+	if env != nil {
+		cmd.Env = append(os.Environ(), env...)
+	}
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		message := strings.TrimSpace(string(out))

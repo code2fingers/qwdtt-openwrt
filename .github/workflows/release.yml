@@ -51,7 +51,7 @@ jobs:
         run: |
           set -eu
 
-          MKS="qwdtt/Makefile qwdtt-client/Makefile luci-app-qwdtt/Makefile"
+          MKS="qwdtt-client/Makefile luci-proto-qwdtt/Makefile"
           cur=""
           for mk in $MKS; do
             v=$(sed -n 's/^PKG_VERSION:=[[:space:]]*//p' "$mk" | tr -d '[:space:]')
@@ -168,14 +168,12 @@ jobs:
       # needs the one its package manager understands.
       #
       # Every architecture's directory gets that architecture's client plus the
-      # three noarch packages, so one feed URL serves a router everything.
+      # two noarch packages, so one feed URL serves a router everything.
       - name: Assemble the feed
         run: |
           mkdir -p noarch-apk noarch-ipk
-          cp staged-apk/x86_64/qwdtt/qwdtt-[0-9]*.apk \
-             staged-apk/x86_64/qwdtt/luci-*.apk noarch-apk/
-          cp staged-ipk/x86_64/qwdtt/qwdtt_[0-9]*.ipk \
-             staged-ipk/x86_64/qwdtt/luci-*.ipk noarch-ipk/
+          cp staged-apk/x86_64/qwdtt/luci-*.apk noarch-apk/
+          cp staged-ipk/x86_64/qwdtt/luci-*.ipk noarch-ipk/
 
           for d in staged/*/qwdtt; do
             arch=$(basename "$(dirname "$d")")
@@ -416,7 +414,7 @@ jobs:
           TAG: ${{ needs.version.outputs.tag }}
         run: |
           base="https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG"
-          noarch="qwdtt luci-app-qwdtt luci-i18n-qwdtt-ru"
+          noarch="luci-proto-qwdtt luci-i18n-qwdtt-ru"
           names=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" \
                     --json assets -q '.assets[].name')
 
@@ -441,7 +439,7 @@ jobs:
           }
           noarch_link() {  # pkg ext -> <a> for the noarch build of pkg, or N/A
             for f in $(echo "$names" | grep -E "^$1[_-].*\.$2$" | sort); do
-              # the pattern also catches per-arch builds (qwdtt- matches qwdtt-client-); drop them
+              # a noarch name may also prefix a per-arch build's name; drop those
               for k in $arches; do case "$f" in *"$k"*) continue 2 ;; esac; done
               printf '<a href="%s/%s">%s</a>' "$base" "$f" "$f"; return
             done

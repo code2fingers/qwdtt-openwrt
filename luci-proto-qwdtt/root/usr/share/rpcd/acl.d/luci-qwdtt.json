@@ -1,0 +1,14 @@
+{
+	"luci-proto-qwdtt": {
+		"description": "Grant access to the qWDTT status page",
+		"read": {
+			"ubus": {
+				"luci.qwdtt": [ "getRuntime" ]
+			},
+			"uci": [ "network" ]
+		},
+		"write": {
+			"uci": [ "network", "firewall" ]
+		}
+	}
+}

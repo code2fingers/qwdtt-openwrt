@@ -4,15 +4,15 @@
 # SDK runs.
 #
 # Building it from source inside the SDK needs go >= 1.25, which the 24.10 feed
-# cannot supply, and that floor is what kept this package off 24.10 and made
-# the qwdtt package unable to depend on it. The client is a static
-# CGO_ENABLED=0 ELF, so the target toolchain contributes nothing to it:
-# packaging the prebuilt binary instead builds on every SDK in seconds.
+# cannot supply, and that floor is what kept this package off 24.10 entirely.
+# The client is a static CGO_ENABLED=0 ELF, so the target toolchain contributes
+# nothing to it: packaging the prebuilt binary instead builds on every SDK in
+# seconds.
 
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=qwdtt-client
-# The repository's tag, shared with qwdtt and luci-app-qwdtt.
+# The repository's tag, shared with luci-proto-qwdtt.
 PKG_VERSION:=1.1.0
 PKG_RELEASE:=1
 
@@ -35,8 +35,9 @@ The client half of qWDTT, a novel VPN based on the WDTT protocol family that
 tunnels traffic through VK TURN servers. It creates the TUN interface and
 carries the LAN's IPv4 traffic to a qWDTT server.
 
-Neither the control script nor the LuCI page is here: see the qwdtt and
-luci-app-qwdtt packages.
+It also ships the netifd protocol handler, so a tunnel is an interface with
+option proto 'qwdtt' in /etc/config/network rather than a service of its own.
+The web interface for it is the separate luci-proto-qwdtt package.
 endef
 
 # Nothing is fetched or compiled; package.mk still wants the directory.
@@ -57,6 +58,40 @@ define Package/qwdtt-client/install
 	test -f ./files/qwdtt-client
 	$(INSTALL_DIR) $(1)/usr/bin
 	$(INSTALL_BIN) ./files/qwdtt-client $(1)/usr/bin/qwdtt-client
+	$(INSTALL_DIR) $(1)/lib/netifd/proto
+	$(INSTALL_BIN) ./files/qwdtt.sh $(1)/lib/netifd/proto/qwdtt.sh
+	$(INSTALL_BIN) ./files/qwdtt-up.sh $(1)/lib/netifd/qwdtt-up.sh
+	$(INSTALL_BIN) ./files/qwdtt-error.sh $(1)/lib/netifd/qwdtt-error.sh
+	$(INSTALL_DIR) $(1)/etc/uci-defaults
+	# Before the firewall one, so the zone's network list sees the interfaces
+	# the conversion has just written.
+	$(INSTALL_BIN) ./files/qwdtt.migrate $(1)/etc/uci-defaults/98-qwdtt-netifd
+	$(INSTALL_BIN) ./files/qwdtt.defaults $(1)/etc/uci-defaults/99-qwdtt
+endef
+
+# The counterpart to the zone that files/qwdtt.defaults writes at install: the
+# zone, the forwarding it needs and the per-tunnel SNAT rules the up-script
+# adds. Left behind, they describe devices that no longer exist and fw4 carries
+# them through every reload, with nothing to say where they came from.
+#
+# The SNAT rules are matched the way they were written rather than by listing
+# the tunnels, so one whose interface has since been renamed still goes.
+define Package/qwdtt-client/postrm
+#!/bin/sh
+[ -n "$${IPKG_INSTROOT}" ] && exit 0
+
+for section in $$(uci -q show firewall | \
+	sed -n "s/^firewall\.\([^.=]*_snat\)\.src='qwdtt'$$/\1/p"); do
+	uci -q delete "firewall.$$section"
+done
+uci -q delete firewall.qwdtt_lan
+uci -q delete firewall.qwdtt
+uci commit firewall
+# restart, not reload: a reload rewrites the rules but leaves the departed
+# zone's own chains in the live ruleset, empty and unreferenced.
+[ ! -x /etc/init.d/firewall ] || /etc/init.d/firewall restart >/dev/null 2>&1
+
+exit 0
 endef
 
 $(eval $(call BuildPackage,qwdtt-client))

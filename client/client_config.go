@@ -8,20 +8,19 @@ import (
 )
 
 type clientFileConfig struct {
-	Peer         string   `json:"peer"`
-	Hashes       []string `json:"hashes"`
-	Password     string   `json:"password"`
-	DeviceID     string   `json:"device_id"`
-	Workers      int      `json:"workers"`
-	DNS          string   `json:"dns"`
-	Obfs         string   `json:"obfs"`
-	CaptchaMode  string   `json:"captcha_mode"`
-	VKAuth       string   `json:"vk_auth"`
-	VKAnonPath   string   `json:"vk_anon_path"`
-	NoDTLS       bool     `json:"no_dtls"`
-	TurnTCP      bool     `json:"turn_tcp"`
-	TunName      string   `json:"tun_name"`
-	LANInterface string   `json:"lan_interface"`
+	Peer        string   `json:"peer"`
+	Hashes      []string `json:"hashes"`
+	Password    string   `json:"password"`
+	DeviceID    string   `json:"device_id"`
+	Workers     int      `json:"workers"`
+	DNS         string   `json:"dns"`
+	Obfs        string   `json:"obfs"`
+	CaptchaMode string   `json:"captcha_mode"`
+	VKAuth      string   `json:"vk_auth"`
+	VKAnonPath  string   `json:"vk_anon_path"`
+	NoDTLS      bool     `json:"no_dtls"`
+	TurnTCP     bool     `json:"turn_tcp"`
+	TunName     string   `json:"tun_name"`
 }
 
 func configPathFromArgs(args []string) string {

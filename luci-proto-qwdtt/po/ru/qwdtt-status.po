@@ -1,0 +1,73 @@
+# Named for the package rather than for the view it serves. luci.mk compiles
+# each po into <basename>.<lang>.lmo and the runtime merges every file in
+# /usr/lib/lua/luci/i18n into one catalogue, so the name matters only as a path
+# on disk -- and a plain status.ru.lmo is a path any other package with a
+# status page also claims. apk then refuses to install this one, which is how
+# luci-i18n-amneziawg-ru came to own the Russian status strings on a router
+# that had both.
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Project-Id-Version: luci-proto-qwdtt\n"
+"Language: ru\n"
+"Plural-Forms: nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2);\n"
+
+msgid "qWDTT"
+msgstr "qWDTT"
+
+msgid "Tunnels are configured on %s: add an interface whose protocol is qWDTT, or open one that already exists to change it. This page only reports."
+msgstr "Туннели настраиваются в разделе %s: добавьте интерфейс с протоколом qWDTT или откройте существующий, чтобы его изменить. Эта страница только показывает состояние."
+
+msgid "Network -> Interfaces"
+msgstr "Сеть -> Интерфейсы"
+
+msgid "Tunnel"
+msgstr "Туннель"
+
+msgid "Peer"
+msgstr "Сервер"
+
+msgid "Hashes"
+msgstr "Хеши"
+
+msgid "Device ID"
+msgstr "Идентификатор устройства"
+
+msgid "Session uptime"
+msgstr "Время работы сессий"
+
+msgid "Reconnects"
+msgstr "Переподключений"
+
+msgid "Active Workers"
+msgstr "Активных воркеров"
+
+msgid "TURN relays"
+msgstr "Ретрансляторы TURN"
+
+msgid "Status"
+msgstr "Состояние"
+
+msgid "No qWDTT interfaces are configured."
+msgstr "Интерфейсы qWDTT не настроены."
+
+msgid "connecting"
+msgstr "подключается"
+
+msgid "down"
+msgstr "выключен"
+
+msgid "Uptime"
+msgstr "Время работы"
+
+msgid "IPv4"
+msgstr "IPv4"
+
+msgid "RX"
+msgstr "RX"
+
+msgid "TX"
+msgstr "TX"
+
+msgid "Pkts."
+msgstr "пакетов"

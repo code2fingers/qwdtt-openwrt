@@ -1,0 +1,58 @@
+#!/bin/sh
+
+# qwdtt+ rather than qwdtt0: every tunnel gets its own device, and firewall4
+# rewrites a trailing + into a wildcard, so one zone covers all of them. The
+# network list covers the rest - an interface may be named anything, and one
+# named off-pattern would otherwise sit in no zone at all.
+#
+# The zone deliberately does NOT masquerade, and that is the one setting here
+# it would be easy to put back by mistake. The masquerade target registers a
+# notifier that flushes every conntrack entry through a device the moment that
+# device goes down, which a tunnel restart always does - and an interrupted
+# connection cannot then be picked up, because the first segment to arrive is
+# unrecognised. Measured on a router: 65 seconds to resume and the far end gone
+# before it did, against 5 seconds and an unbroken transfer without it. The
+# LAN still needs its source rewritten, so /lib/netifd/qwdtt-up.sh writes a
+# plain SNAT rule per tunnel to the address the server assigned; SNAT registers
+# no such notifier.
+#
+# input is DROP rather than the REJECT a WAN zone would use, for the same
+# reason rather than for hardening: a packet conntrack does not recognise -
+# which is what the server's in-flight segments become whenever the tunnel's
+# address does change - must not be answered with a TCP reset, or a connection
+# that was only interrupted is killed outright.
+uci -q batch <<'EOF'
+set firewall.qwdtt=zone
+set firewall.qwdtt.name='qwdtt'
+delete firewall.qwdtt.device
+add_list firewall.qwdtt.device='qwdtt+'
+delete firewall.qwdtt.network
+set firewall.qwdtt.input='DROP'
+set firewall.qwdtt.output='ACCEPT'
+set firewall.qwdtt.forward='ACCEPT'
+set firewall.qwdtt.masq='0'
+set firewall.qwdtt.mtu_fix='1'
+set firewall.qwdtt_lan=forwarding
+set firewall.qwdtt_lan.src='lan'
+set firewall.qwdtt_lan.dest='qwdtt'
+EOF
+
+for section in $(uci -q show network | sed -n "s/^network\.\([^.=]*\)\.proto='qwdtt'$/\1/p"); do
+	uci -q add_list "firewall.qwdtt.network=$section"
+done
+
+uci commit firewall
+/etc/init.d/firewall reload
+
+# netifd reads /lib/netifd/proto only when it starts, so a protocol installed
+# into a running system stays invisible to it and `ifup` answers NO_DEVICE - a
+# reload does not help, because the handler list is not part of the config. On
+# a first boot netifd is not up yet and there is nothing to restart.
+if handlers=$(ubus call network get_proto_handlers 2>/dev/null); then
+	case "$handlers" in
+	*'"qwdtt"'*) ;;
+	*) /etc/init.d/network restart ;;
+	esac
+fi
+
+exit 0

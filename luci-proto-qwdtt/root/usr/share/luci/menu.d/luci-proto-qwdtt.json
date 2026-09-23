@@ -1,0 +1,14 @@
+{
+	"admin/status/qwdtt": {
+		"title": "qWDTT",
+		"order": 92,
+		"action": {
+			"type": "view",
+			"path": "qwdtt/status"
+		},
+		"depends": {
+			"acl": [ "luci-proto-qwdtt" ],
+			"uci": { "network": true }
+		}
+	}
+}

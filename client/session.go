@@ -194,6 +194,9 @@ func RunSession(
 	}
 	defer turnConnCloser.Close()
 
+	reportNetifdRelay(turnAddr, 1)
+	defer reportNetifdRelay(turnAddr, -1)
+
 	if tp.TCPTransport {
 		log.Printf("[SESSION #%d] TURN TCP (%s)", sessionID, turnAddr)
 	} else {

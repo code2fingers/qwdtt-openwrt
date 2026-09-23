@@ -27,7 +27,7 @@ APK_KEY_DEST=/etc/apk/keys/qwdtt.pem
 APK_FEED_LIST=/etc/apk/repositories.d/qwdtt.list
 OPKG_FEED_CONF=/etc/opkg/qwdtt.conf
 
-CORE_PKGS="qwdtt-client qwdtt luci-app-qwdtt"
+CORE_PKGS="qwdtt-client luci-proto-qwdtt"
 I18N_PKG="luci-i18n-qwdtt-ru"
 
 WANT_I18N=1
@@ -193,19 +193,36 @@ post_install_hint() {
 	cat <<'EOF'
 
 Next steps
-  1. Set the peer, password and call hashes -- in LuCI (Services -> qWDTT ->
-     Settings), or over UCI:
+  1. Add the tunnel. It is an interface now, so in LuCI it is
+     Network -> Interfaces -> Add new interface, protocol qWDTT. Over UCI:
 
-       uci set qwdtt.main.peer_host='SERVER_IP'
-       uci set qwdtt.main.peer_port='56003'
-       uci set qwdtt.main.password='CONNECTION_PASSWORD'
-       uci add_list qwdtt.main.hash='VK_CALL_HASH'
-       uci commit qwdtt
+       uci set network.qwdtt0=interface
+       uci set network.qwdtt0.proto='qwdtt'
+       uci set network.qwdtt0.ip4table='51820'
+       uci set network.qwdtt0.peer_host='SERVER_IP'
+       uci set network.qwdtt0.peer_port='56003'
+       uci set network.qwdtt0.device_id='DEVICE_ID'
+       uci set network.qwdtt0.password='CONNECTION_PASSWORD'
+       uci add_list network.qwdtt0.hash='VK_CALL_HASH'
 
-  2. Enable at boot and start now:
+  2. Send the LAN into it, and hold the traffic rather than releasing it to
+     the WAN while the tunnel is down:
 
-       /etc/init.d/qwdtt enable
-       /usr/bin/qwdtt start
+       uci set network.qwdtt0_rule=rule
+       uci set network.qwdtt0_rule.in='lan'
+       uci set network.qwdtt0_rule.lookup='51820'
+       uci set network.qwdtt0_rule.priority='10000'
+       uci set network.qwdtt0_killswitch=route
+       uci set network.qwdtt0_killswitch.interface='loopback'
+       uci set network.qwdtt0_killswitch.target='0.0.0.0/0'
+       uci set network.qwdtt0_killswitch.type='unreachable'
+       uci set network.qwdtt0_killswitch.table='51820'
+       uci set network.qwdtt0_killswitch.metric='4096'
+       uci commit network
+       ifup qwdtt0
+
+  A second tunnel is another interface, with its own ip4table and its own
+  rule saying which traffic it carries.
 
   The password and hashes are secrets -- do not publish or share them.
 EOF
