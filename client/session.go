@@ -509,6 +509,16 @@ func RunSession(
 	var proxyWg sync.WaitGroup
 	proxyWg.Add(3) // +1 for keepalive goroutine
 
+	// Losing the path under a session raises no error, so it has to be noticed
+	// actively. See watchSessionPath.
+	boundIP := ""
+	if a := turnConn.LocalAddr(); a != nil {
+		if host, _, err := net.SplitHostPort(a.String()); err == nil {
+			boundIP = host
+		}
+	}
+	go watchSessionPath(sessCtx, sessCancel, peer.String(), boundIP, sessionID)
+
 	stopConn := context.AfterFunc(sessCtx, func() {
 		_ = activeConn.SetDeadline(time.Now())
 	})

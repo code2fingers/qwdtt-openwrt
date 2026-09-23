@@ -66,3 +66,76 @@ func waitUplinkSettled(ctx context.Context, addr string, wid int) {
 		}
 	}
 }
+
+// rotationGate serialises the session rotations that follow a change of uplink,
+// one worker at a time. Nine at once exhaust VK's per-account allocation quota.
+var rotationGate = make(chan struct{}, 1)
+
+// rotationSpacing is how long a rotating worker holds the gate: long enough to
+// cover its replacement's TURN handshake, short enough that migrating the whole
+// fleet stays in the tens of seconds.
+const rotationSpacing = 2 * time.Second
+
+// acquireRotation blocks until this worker may rotate, or the session ends.
+func acquireRotation(ctx context.Context) bool {
+	select {
+	case rotationGate <- struct{}{}:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
+// addressIsLocal reports whether ip is still assigned to an interface here. An
+// unreadable interface list answers true: not being able to tell is no reason
+// to tear a working session down.
+func addressIsLocal(ip string) bool {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return true
+	}
+	for _, a := range addrs {
+		if n, ok := a.(*net.IPNet); ok && n.IP.String() == ip {
+			return true
+		}
+	}
+	return false
+}
+
+// watchSessionPath cancels the session when the path it was built on is gone:
+// either the bound address vanished, or the kernel now prefers a different
+// source, which raises no error and is not survivable.
+func watchSessionPath(ctx context.Context, cancel context.CancelFunc, peerAddr, boundIP string, sessionID int) {
+	startSrc := currentSource(peerAddr)
+
+	t := time.NewTicker(uplinkPollInterval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+
+		// No gate here: there is no working allocation left to protect.
+		if boundIP != "" && !addressIsLocal(boundIP) {
+			log.Printf("[WORKER #%d] Bound address %s is gone, recreating session",
+				sessionID, boundIP)
+			cancel()
+			return
+		}
+
+		now := currentSource(peerAddr)
+		if now == "" || startSrc == "" || now == startSrc {
+			continue
+		}
+		if !acquireRotation(ctx) {
+			return
+		}
+		log.Printf("[WORKER #%d] Preferred address changed (%s -> %s), recreating session",
+			sessionID, startSrc, now)
+		cancel()
+		time.AfterFunc(rotationSpacing, func() { <-rotationGate })
+		return
+	}
+}
