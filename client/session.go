@@ -166,6 +166,9 @@ func RunSession(
 	allocateGate <-chan time.Time,
 ) (bool, error) {
 	configDelivered := false
+	// The error that made this session's socket unusable. Written by
+	// Writer/Reader, read at the end of RunSession.
+	var stalePathErr atomic.Value
 	var firstWrapUp uint32
 	var firstWrapDown uint32
 	var firstWireWrite uint32
@@ -617,6 +620,9 @@ func RunSession(
 			putPktBuf(pkt)
 			if writeErr != nil {
 				log.Printf("[WORKER #%d] Writer error: %v", sessionID, writeErr)
+				if isStaleBindingError(writeErr) {
+					stalePathErr.Store(writeErr)
+				}
 				return
 			}
 		}
@@ -638,6 +644,9 @@ func RunSession(
 					continue
 				}
 				log.Printf("[WORKER #%d] Reader error: %v", sessionID, readErr)
+				if isStaleBindingError(readErr) {
+					stalePathErr.Store(readErr)
+				}
 				return
 			}
 
@@ -678,6 +687,12 @@ func RunSession(
 	relayWg.Wait()
 	sessionWg.Wait()
 	log.Printf("[SESSION #%d] Finished", sessionID)
+	// Returning nil here would have the group treat the session as cleanly
+	// closed and wait its usual 5-15s. For a dead local address that is the
+	// worst move available, so surface the error instead.
+	if err, _ := stalePathErr.Load().(error); err != nil {
+		return configDelivered, fmt.Errorf("socket local address is no longer usable: %w", err)
+	}
 	return configDelivered, nil
 }
 

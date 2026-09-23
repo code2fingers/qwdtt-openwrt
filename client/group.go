@@ -186,6 +186,15 @@ func WorkerGroup(
 					}
 				}
 
+				// Reconnect at once rather than after the 5-15s backoff below:
+				// the failure is local, not VK's, so waiting only extends the
+				// outage.
+				if isStaleBindingError(sessErr) {
+					log.Printf("[WORKER #%d] Uplink changed (%v), waiting for the address to settle", wid, sessErr)
+					waitUplinkSettled(ctx, peer.String(), wid)
+					continue
+				}
+
 				if sessErr != nil {
 					if ctx.Err() != nil {
 						return
