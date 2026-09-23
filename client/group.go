@@ -67,14 +67,55 @@ func WorkerGroup(
 	}
 	log.Printf("[GROUP #%d] Requesting credentials (hash: %s...)", groupID, shortHash)
 
+	// The next group waits on this, so it has to be released whatever happens
+	// below. A group that returned without handing the baton on left every
+	// later group blocked for ever, and main's wg.Wait() with them: the client
+	// stayed alive doing nothing, which is also why netifd never restarted it.
+	var handedOver sync.Once
+	handOver := func() bool {
+		released := false
+		if signalReady != nil {
+			handedOver.Do(func() {
+				close(signalReady)
+				released = true
+			})
+		}
+		return released
+	}
+	defer handOver()
+
 	credStreamID := groupID * 100
-	user, pass, turnURLs, err := GetCreds(ctx, hash, credStreamID)
 	var creds *Credentials
-	if err == nil {
-		creds = &Credentials{User: user, Pass: pass, TurnURLs: turnURLs, CacheStreamID: credStreamID}
-	} else {
-		log.Printf("[GROUP #%d] Credentials error: %v", groupID, err)
-		return
+	for attempt := 1; ; attempt++ {
+		user, pass, turnURLs, err := GetCreds(ctx, hash, credStreamID)
+		if err == nil {
+			creds = &Credentials{User: user, Pass: pass, TurnURLs: turnURLs, CacheStreamID: credStreamID}
+			break
+		}
+		if ctx.Err() != nil {
+			return
+		}
+
+		// Asking again will not revive a dead hash, and the interface should be
+		// told rather than left waiting behind a tunnel that is not coming up.
+		errStr := err.Error()
+		if strings.Contains(errStr, "хеш мёртв") ||
+			strings.Contains(errStr, "FATAL_AUTH") {
+			log.Printf("[GROUP #%d] Fatal credentials error: %v", groupID, err)
+			notifyNetifdError(errStr)
+			return
+		}
+
+		// Anything else is worth asking again. At boot netifd brings the
+		// interface up before the WAN has a route, so the first fetch fails for
+		// want of a network rather than for want of credentials, and giving up
+		// there left the tunnel down until somebody restarted it by hand.
+		log.Printf("[GROUP #%d] Credentials error (attempt %d): %v", groupID, attempt, err)
+		select {
+		case <-time.After(time.Duration(5+rand.Intn(11)) * time.Second):
+		case <-ctx.Done():
+			return
+		}
 	}
 
 	log.Printf("[GROUP #%d] Credentials OK, TURN: %v, %d workers", groupID, creds.TurnURLs, len(workerIDs))
@@ -119,8 +160,9 @@ func WorkerGroup(
 		go func() {
 			delayMs := 1000 + rand.Intn(500)
 			time.Sleep(time.Duration(delayMs) * time.Millisecond)
-			close(signalReady)
-			log.Printf("[GROUP #%d] Started successfully! Handing the baton to the next group...", groupID)
+			if handOver() {
+				log.Printf("[GROUP #%d] Started successfully! Handing the baton to the next group...", groupID)
+			}
 		}()
 	}
 
