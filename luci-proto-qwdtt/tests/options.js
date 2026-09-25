@@ -195,7 +195,10 @@ function check(what, got, want) {
 		const uci = makeUci();
 		uci.add('network', 'interface', 'qwdtt0');
 		uci.set('network', 'qwdtt0', 'ip4table', '51820');
-		const opts = load(uci, { hash: H(hashCount), vk_auth: auth || 'anonymous' });
+		// account mode is not on the tab any more, so the ceiling reads it from
+		// uci: a tunnel set that way by hand is still held to four
+		uci.set('network', 'qwdtt0', 'vk_auth', auth || 'anonymous');
+		const opts = load(uci, { hash: H(hashCount) });
 		return opts.workers.validate('qwdtt0', workers);
 	};
 	const ok = (what, v, hashes, auth) => check(what, at(v, hashes, auth), true);
@@ -244,6 +247,11 @@ function check(what, got, want) {
 {
 	const handler = fs.readFileSync('qwdtt-client/files/qwdtt.sh', 'utf8');
 	const re = /\$\{([a-z_]+):-([^}]+)\}/g;
+	// Deliberately absent from the tab. Account mode wants a supervising
+	// process handing it fresh TURN credentials every few minutes, which a
+	// router does not have, so the page does not offer a choice that cannot
+	// work. The handler still passes it, for a config set with uci.
+	const NOT_OFFERED = { vk_auth: 1, vk_creds_file: 1 };
 	const uci = makeUci();
 	uci.add('network', 'interface', 'qwdtt0');
 	uci.set('network', 'qwdtt0', 'ip4table', '51820');
@@ -254,6 +262,8 @@ function check(what, got, want) {
 		const [ , name, value ] = m;
 		const o = opts[name];
 
+		if (NOT_OFFERED[name])
+			continue;
 		if (o == null) {
 			console.log(`the handler falls back to ${name}=${value}, which no field offers`);
 			failed = 1;

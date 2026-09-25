@@ -33,11 +33,14 @@ msgstr "Хеши"
 msgid "Device ID"
 msgstr "Идентификатор устройства"
 
-msgid "Session uptime"
-msgstr "Время работы сессий"
+msgid "Sessions up for"
+msgstr "Сессии установлены"
 
 msgid "Reconnects"
 msgstr "Переподключений"
+
+msgid "Captchas"
+msgstr "Капчи"
 
 msgid "Active Workers"
 msgstr "Активных воркеров"
@@ -57,9 +60,6 @@ msgstr "подключается"
 msgid "down"
 msgstr "выключен"
 
-msgid "Uptime"
-msgstr "Время работы"
-
 msgid "IPv4"
 msgstr "IPv4"
 
@@ -71,3 +71,27 @@ msgstr "TX"
 
 msgid "Pkts."
 msgstr "пакетов"
+
+msgid "Ping"
+msgstr "Пинг"
+
+msgid "Host"
+msgstr "Хост"
+
+msgid "IP address or hostname"
+msgstr "IP-адрес или имя хоста"
+
+msgid "Check a tunnel"
+msgstr "Проверка туннеля"
+
+msgid "Pings an address through the tunnel itself rather than through the router, which is what tells a tunnel that is up and carrying nothing from one that works."
+msgstr "Пингует адрес через сам туннель, а не через роутер: именно это отличает туннель, который поднят, но ничего не передает, от работающего."
+
+msgid "Last received"
+msgstr "Последние входящие данные"
+
+msgid "%s ago"
+msgstr "%s назад"
+
+msgid "nothing yet"
+msgstr "ещё ничего"

@@ -609,11 +609,16 @@ func solveCaptchaBySelectedMode(
 	client tlsclient.HttpClient,
 	profile Profile,
 	savedProfile *SavedProfile,
-) (string, error) {
-	if fresh, err := rotateCaptchaProfile(); err == nil {
+) (token string, err error) {
+	// Every path out of here is one attempt at one captcha, and the interface
+	// has no other way of knowing VK asked. Named returns so the outcome is
+	// recorded wherever the chain happens to give up.
+	defer func() { reportNetifdCaptcha(captchaErr.CaptchaSid, err == nil) }()
+
+	if fresh, rotateErr := rotateCaptchaProfile(); rotateErr == nil {
 		savedProfile = fresh
 	} else {
-		log.Printf("[STREAM %d] [CAPTCHA] profile rotate failed: %v", streamID, err)
+		log.Printf("[STREAM %d] [CAPTCHA] profile rotate failed: %v", streamID, rotateErr)
 	}
 
 	switch getCaptchaMode() {
@@ -712,6 +717,15 @@ func solveCaptchaBySelectedMode(
 }
 
 func requestWebViewCaptcha(streamID int, captchaErr *VkCaptchaError, mode string, timeout time.Duration) (string, error) {
+	// Asking costs the full timeout and can only ever time out here. The
+	// request goes to a supervising process that is expected to open a WebView
+	// and answer on stdin; the phone app is one, netifd is not, and a router
+	// has no browser to render the page in either. Refusing at once turns the
+	// three WebView steps of the automatic chain from about seventy seconds of
+	// waiting into nothing, and leaves the outcome the same.
+	if netifdManaged {
+		return "", fmt.Errorf("webview captcha needs a browser, which a router has none of")
+	}
 	if CaptchaResultChan == nil || captchaErr == nil || captchaErr.RedirectURI == "" || captchaErr.SessionToken == "" {
 		return "", fmt.Errorf("webview captcha data is incomplete")
 	}

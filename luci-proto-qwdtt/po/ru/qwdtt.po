@@ -125,29 +125,11 @@ msgstr "Режим капчи"
 msgid "How a VK captcha is answered. auto tries the built-in solver and falls back."
 msgstr "Как отвечать на капчу VK. auto сначала пробует встроенный решатель, затем запасные пути."
 
-msgid "VK authorization"
-msgstr "Авторизация VK"
-
-msgid "anonymous joins the call without an account. account uses TURN credentials from a VK account, read from the file below."
-msgstr "anonymous подключается к звонку без учетной записи. account использует учетные данные TURN от аккаунта VK, прочитанные из файла ниже."
-
-msgid "anonymous"
-msgstr "анонимно"
-
-msgid "account"
-msgstr "по аккаунту"
-
 msgid "Anonymous path"
 msgstr "Анонимный путь"
 
 msgid "Which VK endpoint an anonymous join goes through."
 msgstr "Через какую точку входа VK проходит анонимное подключение."
-
-msgid "VK credentials file"
-msgstr "Файл учетных данных VK"
-
-msgid "File holding the TURN credentials of a VK account. Without it, account authorization has nothing to authorize with."
-msgstr "Файл с учетными данными TURN от аккаунта VK. Без него авторизации по аккаунту нечем авторизоваться."
 
 msgid "Disable DTLS"
 msgstr "Отключить DTLS"

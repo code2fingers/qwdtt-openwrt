@@ -5,6 +5,7 @@ import (
 	"log"
 	"math/rand"
 	"os"
+	"path/filepath"
 )
 
 // Profile holds consistent browser fingerprint headers for TLS+HTTP requests.
@@ -22,13 +23,28 @@ type SavedProfile struct {
 	BrowserFp  string `json:"browser_fp"`
 }
 
-const (
-	profileFile          = "vk_profile.json"
-	captchaBrowserFpFile = "captcha_browser_fp"
-)
+const profileFile = "vk_profile.json"
+
+// Where the saved browser identity lives.
+//
+// A bare name is relative to the working directory, which is what the phone
+// app wants: the directory is its own, and the app is the one that writes the
+// file there. Under netifd the working directory is /lib/netifd/proto, which is
+// none of those things - it belongs to the netifd package, it is on flash, and
+// every tunnel on the router would share the one file and overwrite the
+// identity of the others. So a managed tunnel keeps its own under /etc, which
+// is the overlay and survives the reboot this is saved across in the first
+// place.
+func profileStatePath() string {
+	iface := os.Getenv("INTERFACE")
+	if !netifdManaged || iface == "" {
+		return profileFile
+	}
+	return filepath.Join("/etc/qwdtt", iface, profileFile)
+}
 
 func LoadProfileFromDisk() (*SavedProfile, error) {
-	data, err := os.ReadFile(profileFile)
+	data, err := os.ReadFile(profileStatePath())
 	if err != nil {
 		return nil, err
 	}
@@ -60,10 +76,13 @@ func rotateCaptchaProfile() (*SavedProfile, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := os.WriteFile(profileFile, data, 0644); err != nil {
-		return nil, err
+	path := profileStatePath()
+	if dir := filepath.Dir(path); dir != "." {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return nil, err
+		}
 	}
-	if err := os.WriteFile(captchaBrowserFpFile, []byte(fp), 0644); err != nil {
+	if err := os.WriteFile(path, data, 0600); err != nil {
 		return nil, err
 	}
 	log.Printf("[CAPTCHA] captcha profile rotated (fp=%s...)", fp[:8])

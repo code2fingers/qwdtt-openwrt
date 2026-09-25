@@ -84,7 +84,12 @@ for tunnel in $$(uci -q show network | \
 	sed -n "s/^network\.\([^.=]*\)\.proto='qwdtt'$$/\1/p"); do
 	ifdown "$$tunnel" 2>/dev/null
 	ip link del "$$tunnel" 2>/dev/null
+	# The browser identity the client saved for this tunnel. It is kept
+	# across reboots on purpose, which is exactly why it has to go when the
+	# thing that saved it does.
+	rm -rf "/etc/qwdtt/$$tunnel"
 done
+rmdir /etc/qwdtt 2>/dev/null
 
 exit 0
 endef

@@ -4,8 +4,9 @@
 // totals come off the interface for free now that it owns them; what it cannot
 // tell anyone is where those totals stood when the tunnel last came up, how
 // the client's sessions are doing - how many are carrying traffic, how many
-// have had to be rebuilt, how long there has been an unbroken one - and which
-// VK relays they are carrying it over.
+// have had to be rebuilt, how long there has been an unbroken one - which VK
+// relays they are carrying it over, and how often VK has put a captcha in the
+// way.
 //
 // All of it is files under /var/run/qwdtt, written by the pieces that know:
 // /lib/netifd/qwdtt-up.sh records the counters at the moment it reports the
@@ -58,6 +59,8 @@ const methods = {
 				const base = numbers(`${RUNDIR}/${entry}`, 4);
 				const workers = numbers(`${RUNDIR}/${name}.workers`, 4);
 				const relays = words(`${RUNDIR}/${name}.relays`);
+				const captcha = numbers(`${RUNDIR}/${name}.captcha`, 2);
+				const traffic = numbers(`${RUNDIR}/${name}.traffic`, 2);
 
 				out[name] = {
 					rx_bytes: base ? base[0] : null,
@@ -70,7 +73,18 @@ const methods = {
 					// Resolved against the router's clock rather than handed
 					// over raw: the browser's may be anywhere.
 					connected_for: (workers && workers[3]) ? time() - workers[3] : null,
-					relays: relays
+					relays: relays,
+					// Absent until VK asks for the first one, which is not the
+					// same as none having been asked for: the file is written
+					// when the first captcha arrives.
+					captcha_solved: captcha ? captcha[0] : null,
+					captcha_faced: captcha ? captcha[1] : null,
+					// Seconds since the far end last delivered a byte. Null
+					// while the client has not looked yet, and -1 for a tunnel
+					// that has received nothing at all since it came up, which
+					// is not the same as one that received something a while
+					// ago.
+					idle_for: traffic ? (traffic[0] ? time() - traffic[0] : -1) : null
 				};
 			}
 

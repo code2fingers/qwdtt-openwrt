@@ -527,7 +527,10 @@ return network.registerProtocol('qwdtt', {
 
 			hashes = this.section.formvalue(section_id, 'hash');
 			hashes = parseHashes(Array.isArray(hashes) ? hashes : [ hashes ]);
-			account = this.section.formvalue(section_id, 'vk_auth') == 'account';
+			/* From uci rather than the form: the field is not on this tab, and
+			   a tunnel set to account mode by hand is still held to the four
+			   relays such an account is given. */
+			account = uci.get('network', section_id, 'vk_auth') == 'account';
 			limit = workerCeiling(hashes.length, account);
 
 			if (account)
@@ -638,23 +641,19 @@ return network.registerProtocol('qwdtt', {
 		o.value('wv', 'wv');
 		o.default = 'auto';
 
-		o = s.taboption('qwdtt', form.ListValue, 'vk_auth', _('VK authorization'),
-			withDefault(_('anonymous'), _('anonymous joins the call without an account. account uses TURN credentials from a VK account, read from the file below.')));
-		o.value('anonymous', _('anonymous'));
-		o.value('account', _('account'));
-		o.default = 'anonymous';
+		/* vk_auth and vk_creds_file are not offered here. Account mode wants a
+		   supervising process to hand it fresh TURN credentials over stdin
+		   every few minutes - the phone app is one, a router is not - and the
+		   credentials a file can carry are dropped nine minutes after the
+		   client reads them, after which every worker waits five minutes for an
+		   answer that is not coming. The protocol handler still passes both, so
+		   a router that has something to feed it can set them with uci. */
 
 		o = s.taboption('qwdtt', form.ListValue, 'vk_anon_path', _('Anonymous path'),
 			withDefault('vkcalls', _('Which VK endpoint an anonymous join goes through.')));
 		o.value('vkcalls', 'vkcalls');
 		o.value('legacy', 'legacy');
 		o.default = 'vkcalls';
-		o.depends('vk_auth', 'anonymous');
-
-		o = s.taboption('qwdtt', form.Value, 'vk_creds_file', _('VK credentials file'),
-			_('File holding the TURN credentials of a VK account. Without it, account authorization has nothing to authorize with.'));
-		o.placeholder = '/etc/qwdtt/vk-creds.json';
-		o.depends('vk_auth', 'account');
 
 		o = s.taboption('qwdtt', form.Flag, 'no_dtls', _('Disable DTLS'),
 			withDefault(_('off'), _('Direct mode: RTP-obfs AEAD over TURN without DTLS. The server has to be started with -listen-direct, or the tunnel will not come up.')));

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -148,6 +149,57 @@ func reportNetifdWorkers(active int) {
 	writeNetifdRunFile("workers", line)
 }
 
+// When the tunnel last carried a byte, which is the one thing on the status
+// page that answers "is it working".
+//
+// Everything else there is counted from a session being established: a worker
+// registers when its session reports ready, so the worker count and the clock
+// started from it both go on rising while the server accepts the sessions and
+// forwards nothing. That state has been seen for hours at a time, reading as a
+// tunnel eight hours healthy.
+//
+// Inbound only. What this has to answer is whether the far end is still
+// delivering, and bytes this client sent prove nothing about that: a curl
+// through a tunnel that carries nothing still fills the outbound counter, and
+// counting it put "last traffic: 2 seconds ago" on a tunnel that had delivered
+// nothing for hours - the very reading this exists to stop.
+//
+// Sampled rather than stamped per packet: the dispatcher already counts the
+// bytes on the data path, so a ticker comparing the total costs one comparison
+// every few seconds instead of a write per packet.
+const netifdTrafficTick = 5 * time.Second
+
+func startNetifdTrafficWatch(ctx context.Context, stats *Stats) {
+	if !netifdManaged || stats == nil {
+		return
+	}
+
+	go func() {
+		t := time.NewTicker(netifdTrafficTick)
+		defer t.Stop()
+
+		var last int64
+		var seenAt int64
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+			}
+
+			total := stats.TotalBytesDown.Load()
+			if total != last {
+				last = total
+				seenAt = time.Now().Unix()
+			}
+			// Written every tick rather than only on change, so a page reading
+			// it can tell "nothing yet" from a file nobody has updated.
+			writeNetifdRunFile("traffic", fmt.Sprintf("%d %d\n", seenAt, total))
+		}
+	}()
+}
+
 // Which VK relays the tunnel is actually on. A session picks one out of the
 // list its credentials came with and stays on it, and that list is the wrong
 // thing to report: it names relays that were offered and never answered. So
@@ -178,4 +230,43 @@ func reportNetifdRelay(addr string, delta int) {
 	// order of its own.
 	sort.Strings(addrs)
 	writeNetifdRunFile("relays", strings.Join(addrs, " ")+"\n")
+}
+
+// How often VK has put a captcha in front of this tunnel, and how often the
+// client got past it. Nothing else says so: a captcha the solver answers leaves
+// the tunnel working and shows up nowhere, and a captcha it cannot answer looks
+// from the outside like credentials that will not come, so the two are worth
+// telling apart on the page.
+//
+// Counted per challenge rather than per attempt. The solver is called again for
+// the same captcha up to three times, and VK identifies the challenge by its
+// sid, so a repeat of a sid already seen is the same captcha being retried.
+var (
+	netifdCaptchaMu     sync.Mutex
+	netifdCaptchaSeen   = map[string]bool{}
+	netifdCaptchaFaced  int
+	netifdCaptchaSolved int
+)
+
+func reportNetifdCaptcha(sid string, solved bool) {
+	if !netifdManaged {
+		return
+	}
+
+	netifdCaptchaMu.Lock()
+	// An empty sid cannot be told apart from the last one, so it counts as its
+	// own challenge rather than silently folding into another.
+	if sid == "" || !netifdCaptchaSeen[sid] {
+		if sid != "" {
+			netifdCaptchaSeen[sid] = true
+		}
+		netifdCaptchaFaced++
+	}
+	if solved {
+		netifdCaptchaSolved++
+	}
+	line := fmt.Sprintf("%d %d\n", netifdCaptchaSolved, netifdCaptchaFaced)
+	netifdCaptchaMu.Unlock()
+
+	writeNetifdRunFile("captcha", line)
 }
