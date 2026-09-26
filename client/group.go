@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/cipher"
 	"log"
 	"math/rand"
 	"net"
@@ -294,13 +295,22 @@ func WorkerGroup(
 						log.Printf("[WORKER #%d] Error (attempt %d): %s", wid, attempt, errStr)
 					}
 
-					// On a STUN error (credentials invalid) the worker cannot reconnect. Stop it.
-					isStunDeath := strings.Contains(errStrLower, "error 29") ||
-						strings.Contains(errStrLower, "cannot create socket")
-
-					if isStunDeath {
-						log.Printf("[WORKER #%d] Unrecoverable TURN/STUN error, stopping: %s", wid, errStr)
-						return
+					// Neither of these is permanent, and both were treated as if
+					// they were: error 29 is VK's rate limit, and "cannot create
+					// socket" is this router having no address to bind to for a
+					// moment, which is exactly what an uplink change looks like
+					// from here. A worker that returned never came back - nothing
+					// rebuilds one, and the client exits only once every worker in
+					// every group has gone - so the tunnel ran on fewer sessions
+					// for as long as it ran, with the count on the status page the
+					// only sign of it.
+					//
+					// Waited out on the quota footing rather than the ordinary
+					// one, because asking a rate limit again in five seconds is
+					// how it stays a rate limit.
+					if strings.Contains(errStrLower, "error 29") ||
+						strings.Contains(errStrLower, "cannot create socket") {
+						quotaRetry = true
 					}
 				}
 
@@ -368,8 +378,8 @@ type TurnParams struct {
 	Host     string
 	Port     string
 	Hashes   []string
-	WrapKey  []byte // Password-derived WRAP key (32 bytes), nil = disabled
-	ObfsMode string // "audio" or "video" - RTP masking mode
+	WrapAEAD cipher.AEAD // Derived from the connection password, nil = disabled
+	ObfsMode string      // "audio" or "video" - RTP masking mode
 	// NoDTLS: skip DTLS and run RTP-obfs AEAD directly over the TURN relay.
 	// Requires a server that can accept direct (DTLS-less) sessions on a
 	// separate port/listener - see server.go -listen-direct.

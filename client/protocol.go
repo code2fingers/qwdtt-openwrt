@@ -8,6 +8,24 @@ import (
 	"time"
 )
 
+// The server's refusals, which both config requests answer the same way.
+// FATAL_AUTH is a prefix the rest of the client keys on: reconnecting clears
+// none of these, so a worker meeting one stops and the interface is told why
+// rather than being left to retry.
+func deniedError(resp string) error {
+	reason := strings.TrimPrefix(resp, "DENIED:")
+	switch reason {
+	case "wrong_password":
+		return fmt.Errorf("FATAL_AUTH: wrong connection password")
+	case "expired":
+		return fmt.Errorf("FATAL_AUTH: the password has expired")
+	case "device_mismatch":
+		return fmt.Errorf("FATAL_AUTH: the password is bound to another device")
+	default:
+		return fmt.Errorf("FATAL_AUTH: access denied (%s)", reason)
+	}
+}
+
 // RequestConfig asks for the WireGuard config over the DTLS connection.
 func RequestConfig(conn net.Conn, localPort, deviceID, password string) (string, error) {
 	payload := fmt.Sprintf("GETCONF:%s|%s|%s", localPort, deviceID, password)
@@ -31,17 +49,7 @@ func RequestConfig(conn net.Conn, localPort, deviceID, password string) (string,
 	}
 
 	if strings.HasPrefix(resp, "DENIED:") {
-		reason := strings.TrimPrefix(resp, "DENIED:")
-		switch reason {
-		case "wrong_password":
-			return "", fmt.Errorf("FATAL_AUTH: wrong connection password")
-		case "expired":
-			return "", fmt.Errorf("FATAL_AUTH: the password has expired")
-		case "device_mismatch":
-			return "", fmt.Errorf("FATAL_AUTH: the password is bound to another device")
-		default:
-			return "", fmt.Errorf("FATAL_AUTH: access denied (%s)", reason)
-		}
+		return "", deniedError(resp)
 	}
 
 	return resp, nil
@@ -81,17 +89,7 @@ func RequestRawConfig(conn net.Conn, deviceID, password string) (ip, dnsCSV stri
 		return "", "", 0, nil
 	}
 	if strings.HasPrefix(resp, "DENIED:") {
-		reason := strings.TrimPrefix(resp, "DENIED:")
-		switch reason {
-		case "wrong_password":
-			return "", "", 0, fmt.Errorf("FATAL_AUTH: wrong connection password")
-		case "expired":
-			return "", "", 0, fmt.Errorf("FATAL_AUTH: the password has expired")
-		case "device_mismatch":
-			return "", "", 0, fmt.Errorf("FATAL_AUTH: the password is bound to another device")
-		default:
-			return "", "", 0, fmt.Errorf("FATAL_AUTH: access denied (%s)", reason)
-		}
+		return "", "", 0, deniedError(resp)
 	}
 	if !strings.HasPrefix(resp, "RAWCONF:") {
 		return "", "", 0, fmt.Errorf("unexpected RAWCONF response: %q", resp)

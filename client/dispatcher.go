@@ -50,6 +50,13 @@ const (
 	// ordinary chunk queue. Otherwise an ACK can get stuck behind a large chunk
 	// of data on a slow relay, and the TCP window stops growing.
 	prioThreshold = 128
+
+	// How long readLoop waits after a read error before trying again, doubling
+	// while they keep coming. The floor is what a transient error deserves; the
+	// ceiling is there because an error that does not clear never will, and
+	// retrying it a hundred times a second costs a core and proves nothing.
+	readErrBackoffMin = 10 * time.Millisecond
+	readErrBackoffMax = time.Second
 )
 
 // chunkSizeFor is how many consecutive packets of that size to send to one
@@ -106,7 +113,6 @@ type Dispatcher struct {
 	stats         *Stats
 	firstPktUp    uint32
 	firstPktDown  uint32
-	firstReadErr  uint32
 	firstWriteErr uint32
 
 	// TUN-path diagnostics (rawtun): how many packets were really read from the
@@ -164,9 +170,26 @@ func (d *Dispatcher) AttachTUN(f *os.File) {
 	close(d.ready)
 }
 
+// Bounded, because readLoop can be parked in a blocking read on the TUN device
+// that nothing is able to end: the fd is deliberately blocking, so closing it
+// does not interrupt a read already in flight, and an idle tunnel may never
+// deliver the packet that would return it. Waiting for that is what left the
+// client running after SIGTERM until whoever stopped it gave up and sent
+// SIGKILL. The only caller is the defer in main, on the way out, and neither
+// loop holds anything that has to be flushed first.
 func (d *Dispatcher) Shutdown() {
 	d.cancel()
-	d.wg.Wait()
+
+	stopped := make(chan struct{})
+	go func() {
+		d.wg.Wait()
+		close(stopped)
+	}()
+
+	select {
+	case <-stopped:
+	case <-time.After(time.Second):
+	}
 }
 
 func (d *Dispatcher) Register(w *WorkerSlot) {
@@ -224,6 +247,8 @@ func (d *Dispatcher) readLoop() {
 	}
 
 	buf := make([]byte, readBufSize)
+	readErrs := 0
+	backoff := readErrBackoffMin
 	for {
 		if err := d.ctx.Err(); err != nil {
 			return
@@ -241,16 +266,30 @@ func (d *Dispatcher) readLoop() {
 			if d.ctx.Err() != nil {
 				return
 			}
-			if atomic.CompareAndSwapUint32(&d.firstReadErr, 0, 1) {
+			// An error that does not clear - the device deleted under a running
+			// client is how it happens - used to retry every 10ms for ever with
+			// only the first one logged. That is a hundred failures a second on
+			// a router already spending most of a core carrying the tunnel, and
+			// nothing in the log after the first line to say why.
+			readErrs++
+			if readErrs == 1 || readErrs%50 == 0 {
 				src := "localConn"
 				if d.tunFile != nil {
 					src = "tunFile"
 				}
-				rawDiagf("readLoop: first read error from %s: %v", src, err)
+				rawDiagf("readLoop: read error #%d from %s: %v", readErrs, src, err)
 			}
-			time.Sleep(10 * time.Millisecond)
+			select {
+			case <-d.ctx.Done():
+				return
+			case <-time.After(backoff):
+			}
+			if backoff < readErrBackoffMax {
+				backoff *= 2
+			}
 			continue
 		}
+		readErrs, backoff = 0, readErrBackoffMin
 
 		if d.tunFile == nil {
 			d.clientAddr.Store(&addr)

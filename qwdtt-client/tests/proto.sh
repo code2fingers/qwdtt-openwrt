@@ -233,5 +233,24 @@ dropped: gone
 removed: -f /var/run/qwdtt/gone.counters /var/run/qwdtt/gone.workers /var/run/qwdtt/gone.relays
 deleted: firewall.gone_snat'
 
+# --- the option list the uci-defaults script reads --------------------------
+
+# /etc/uci-defaults/99-qwdtt decides whether netifd has to be restarted by
+# comparing the options declared below against the ones netifd registered, and
+# it reads them out of this file with a sed of its own. A declaration written
+# in a shape that sed does not match would leave it comparing a shorter list
+# and skipping the restart - which is the silent case it exists to catch, so
+# the two readings of the same list are asserted to agree.
+DECLARED=
+proto_config_add_string()  { DECLARED="$DECLARED $1"; }
+proto_config_add_int()     { DECLARED="$DECLARED $1"; }
+proto_config_add_boolean() { DECLARED="$DECLARED $1"; }
+proto_config_add_array()   { DECLARED="$DECLARED $1"; }
+proto_qwdtt_init_config
+
+scanned=$(sed -n 's/^[[:space:]]*proto_config_add_[a-z]*[[:space:]]*"\([a-z_]*\)".*/\1/p' \
+	./qwdtt-client/files/qwdtt.sh)
+check "the options 99-qwdtt scans for" "$(echo $scanned)" "$(echo $DECLARED)"
+
 [ "$fail" = 0 ] || exit 1
 echo "qwdtt.sh: ok"

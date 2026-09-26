@@ -3,6 +3,7 @@ package main
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 // The server's RAWCONF separates resolvers with commas and the up-script
@@ -72,5 +73,63 @@ func TestNetifdErrorCode(t *testing.T) {
 		if got := netifdErrorCode(tc.message); got != tc.want {
 			t.Errorf("%q: got %q, want %q", tc.message, got, tc.want)
 		}
+	}
+}
+
+// The watch takes a working tunnel down if it is wrong, so both directions
+// matter: probing a tunnel that is delivering is waste, and giving up on one
+// whose server never answered a probe is worse than the fault.
+func TestNetifdWatchAction(t *testing.T) {
+	tests := []struct {
+		name     string
+		idle     time.Duration
+		answered bool
+		probe    bool
+		giveUp   bool
+	}{
+		{"a tunnel that is delivering is left alone", time.Second, true, false, false},
+		{"and still left alone just short of the probe", netifdProbeAfter - time.Second, true, false, false},
+		{"quiet for a while, so poke it", netifdProbeAfter, false, true, false},
+		{"quiet past the timeout, but it never answered a probe", netifdStallTimeout, false, true, false},
+		{"quiet past the timeout and it used to answer", netifdStallTimeout, true, true, true},
+		{"long past it", time.Hour, true, true, true},
+	}
+
+	for _, tc := range tests {
+		probe, giveUp := netifdWatchAction(tc.idle, tc.answered)
+		if probe != tc.probe || giveUp != tc.giveUp {
+			t.Errorf("%s: got probe=%v giveUp=%v, want probe=%v giveUp=%v",
+				tc.name, probe, giveUp, tc.probe, tc.giveUp)
+		}
+	}
+}
+
+// A wrong checksum is dropped by the far end in silence, which would read
+// here as a server that never answers.
+func TestICMPEcho(t *testing.T) {
+	b := icmpEcho(0x1234)
+	if len(b) != 8 || b[0] != icmpEchoRequest {
+		t.Fatalf("not an echo request: %x", b)
+	}
+	// The checksum of a correct packet, checksum field included, is zero.
+	if got := icmpChecksum(b); got != 0 {
+		t.Errorf("checksum does not verify: got %#04x, want 0", got)
+	}
+}
+
+// A raw ICMP read carries the IPv4 header on Linux and not everywhere, and
+// mistaking the version nibble for an ICMP type is silent: it reads as a
+// server that never answers, which is exactly the state that disarms the
+// watch.
+func TestICMPPayload(t *testing.T) {
+	echo := icmpEcho(0x1234)
+	withHeader := append([]byte{0x45, 0, 0, 28, 0, 0, 0, 0, 64, 1, 0, 0,
+		10, 0, 0, 1, 10, 0, 0, 2}, echo...)
+
+	if got := icmpPayload(withHeader); len(got) != len(echo) || got[0] != echo[0] {
+		t.Errorf("header not skipped: got %x", got)
+	}
+	if got := icmpPayload(echo); len(got) != len(echo) {
+		t.Errorf("bare message was altered: got %x", got)
 	}
 }

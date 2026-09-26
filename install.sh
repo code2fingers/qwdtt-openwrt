@@ -211,13 +211,13 @@ Next steps
        uci set network.qwdtt0_rule=rule
        uci set network.qwdtt0_rule.in='lan'
        uci set network.qwdtt0_rule.lookup='51820'
-       uci set network.qwdtt0_rule.priority='10000'
+       uci set network.qwdtt0_rule.priority='9999'
        uci set network.qwdtt0_killswitch=route
        uci set network.qwdtt0_killswitch.interface='loopback'
        uci set network.qwdtt0_killswitch.target='0.0.0.0/0'
        uci set network.qwdtt0_killswitch.type='unreachable'
        uci set network.qwdtt0_killswitch.table='51820'
-       uci set network.qwdtt0_killswitch.metric='4096'
+       uci set network.qwdtt0_killswitch.metric='1000000'
        uci commit network
        ifup qwdtt0
 

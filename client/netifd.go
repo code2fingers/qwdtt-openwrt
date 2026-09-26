@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"path/filepath"
 	"sort"
@@ -169,7 +170,50 @@ func reportNetifdWorkers(active int) {
 // every few seconds instead of a write per packet.
 const netifdTrafficTick = 5 * time.Second
 
-func startNetifdTrafficWatch(ctx context.Context, stats *Stats) {
+// How long the tunnel may deliver nothing before the client pokes it, and how
+// long before it stops believing in it.
+//
+// Nothing in the client notices a tunnel that has stopped delivering. Every
+// session can be established and every worker registered while the far end
+// forwards none of it: the Reader re-arms its read deadline on every timeout
+// rather than giving up, the relay reader has no deadline at all, and the
+// result of the periodic TURN binding refresh is discarded. Measured on a
+// router, the tunnel sat in that state for seven and a half hours, showing
+// thirty-six of thirty-six workers, no reconnects and a session clock at
+// fourteen hours, and one ifdown/ifup put it right in twenty seconds.
+//
+// Silence alone cannot be the trigger. The server answers nothing on an idle
+// tunnel - measured, the only thing coming back is one STUN binding response
+// per session per ten seconds, from the relay rather than from the server -
+// so a watchdog on silence restarts a tunnel nobody is using. An earlier
+// attempt inferred it instead, from the LAN sending while nothing came back,
+// and that missed the outage above entirely: the router was not sending, so
+// there was nothing to infer from.
+//
+// So the client makes the traffic itself. After netifdProbeAfter of nothing
+// arriving it sends an echo through the tunnel to the server every tick, and
+// a reply is inbound traffic like any other, which puts the question beyond
+// inference: either the tunnel delivers the answer or it delivers nothing.
+const (
+	netifdProbeAfter   = 30 * time.Second
+	netifdStallTimeout = 2 * time.Minute
+)
+
+// What the watch does at a given moment. Pulled out of the loop and given a
+// test because getting it wrong takes down a working tunnel.
+//
+// idle is how long since anything at all arrived. answered says the server has
+// replied to a probe at least once: a server that never has may simply not
+// answer them, and taking its tunnel down every couple of minutes over that
+// would be worse than the fault being looked for.
+func netifdWatchAction(idle time.Duration, answered bool) (probe, giveUp bool) {
+	if idle < netifdProbeAfter {
+		return false, false
+	}
+	return true, answered && idle >= netifdStallTimeout
+}
+
+func startNetifdTrafficWatch(ctx context.Context, cancel context.CancelFunc, stats *Stats, device string, server net.IP) {
 	if !netifdManaged || stats == nil {
 		return
 	}
@@ -180,6 +224,18 @@ func startNetifdTrafficWatch(ctx context.Context, stats *Stats) {
 
 		var last int64
 		var seenAt int64
+		var probe *tunnelProbe
+		var probeErr bool
+		defer func() {
+			if probe != nil {
+				probe.close()
+			}
+		}()
+
+		// Counted from the client starting rather than from the first byte, so
+		// a tunnel that never delivers anything is still probed. Escalating on
+		// one is a separate question, and netifdWatchAction answers it.
+		lastSeen := time.Now()
 
 		for {
 			select {
@@ -188,14 +244,56 @@ func startNetifdTrafficWatch(ctx context.Context, stats *Stats) {
 			case <-t.C:
 			}
 
+			now := time.Now()
 			total := stats.TotalBytesDown.Load()
 			if total != last {
 				last = total
-				seenAt = time.Now().Unix()
+				seenAt = now.Unix()
+				lastSeen = now
 			}
 			// Written every tick rather than only on change, so a page reading
 			// it can tell "nothing yet" from a file nobody has updated.
 			writeNetifdRunFile("traffic", fmt.Sprintf("%d %d\n", seenAt, total))
+
+			idle := now.Sub(lastSeen)
+			shouldProbe, giveUp := netifdWatchAction(idle, probe != nil && probe.everAnswered())
+
+			if giveUp {
+				log.Printf("[NETIFD] nothing has come back through the tunnel for %v, and the server has stopped answering it, giving the interface up so it is rebuilt",
+					idle.Truncate(time.Second))
+				cancel()
+				return
+			}
+			if !shouldProbe {
+				continue
+			}
+
+			// Opened late on purpose: the device does not exist until the
+			// server has answered with an address and the up-script has run,
+			// so there is nothing to bind to before then.
+			if probe == nil {
+				p, err := newTunnelProbe(ctx, device)
+				if err != nil {
+					// Tried again on the next tick rather than given up on:
+					// the usual reason is a device that has no address yet.
+					// Said once, or it is said every five seconds until it
+					// has one.
+					if !probeErr {
+						probeErr = true
+						log.Printf("[NETIFD] cannot probe the tunnel yet: %v", err)
+					}
+					continue
+				}
+				probe, probeErr = p, false
+			}
+			if err := probe.send(server); err != nil {
+				log.Printf("[NETIFD] probing the tunnel: %v", err)
+				// The address it is bound to has most likely moved. A fresh
+				// socket picks the new one up, so drop this one and let the
+				// next tick build it again.
+				probe.close()
+				probe = nil
+			}
 		}
 	}()
 }

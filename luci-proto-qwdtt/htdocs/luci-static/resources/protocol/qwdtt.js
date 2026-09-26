@@ -183,7 +183,15 @@ function parseHashes(entries) {
    own nor be turned off without taking a kill switch somebody wanted with
    it. */
 
-var KILL_METRIC = '4096';
+/* The kill switch only has to lose to the tunnel's own default route, and it
+   is the only other route in the table, so the number just has to be larger
+   than any metric that route could carry. netifd gives an interface's routes
+   the interface's own metric, and at 4096 a tunnel set above that lost to its
+   own kill switch: the unreachable default won, the LAN was refused, and the
+   tunnel stayed up throughout. Confirmed on a router - metric 5000 produced
+   "default dev qwdtt0 ... metric 5000" in the tunnel's table. A million is
+   past anything an interface is given. */
+var KILL_METRIC = '1000000';
 
 function tableOf(section_id) {
 	return uci.get('network', section_id, 'ip4table') || '';
@@ -207,6 +215,12 @@ function freeTable() {
 	return '51820';
 }
 
+/* netifd writes rules of its own for an interface that has an ip4table, and
+   the first of them lands here. It is the one number this must not hand out:
+   two rules at one priority are ordered by whichever the kernel was given
+   first, and nothing in the configuration says which that is. */
+var NETIFD_RULE_PRIORITY = 10000;
+
 /* Below every rule that exists, so a tunnel added second is consulted first.
    The one added first is usually the catch-all, and a rule that matches
    everything has to be asked last or the others never see a packet. */
@@ -219,7 +233,11 @@ function freePriority() {
 			lowest = priority;
 	});
 
-	return String(lowest == null ? 10000 : Math.max(1, lowest - 1));
+	var next = (lowest == null) ? NETIFD_RULE_PRIORITY : lowest - 1;
+	if (next == NETIFD_RULE_PRIORITY)
+		next -= 1;
+
+	return String(Math.max(1, next));
 }
 
 /* Everything but the table is written once, at creation. The description sends
@@ -251,9 +269,13 @@ function addKillswitch(section_id, table) {
 		uci.set('network', kill, 'interface', 'loopback');
 		uci.set('network', kill, 'target', '0.0.0.0/0');
 		uci.set('network', kill, 'type', 'unreachable');
-		uci.set('network', kill, 'metric', KILL_METRIC);
 	}
 	uci.set('network', kill, 'table', table);
+	/* Re-asserted rather than written once, unlike the rest. It is not a knob:
+	   the only thing it decides is that this route loses to the tunnel's, and
+	   a kill switch written when the number was lower is one an interface
+	   metric can still outrank. */
+	uci.set('network', kill, 'metric', KILL_METRIC);
 }
 
 /* Only what is there. Removing a section that does not exist still marks the
@@ -318,6 +340,16 @@ return network.registerProtocol('qwdtt', {
 
 	containsDevice: function(ifname) {
 		return (network.getIfnameOf(ifname) == this.getIfname());
+	},
+
+	/* Deleting the interface has to take these two with it. They are separate
+	   sections, so nothing else removes them, and the kill switch left behind
+	   is not inert: it is the only route left in a table the rule still looks
+	   up, so whatever the rule matches is refused outright - by a tunnel that
+	   no longer exists and has nothing left to explain it. */
+	deleteConfiguration: function() {
+		dropSection(this.sid + '_rule');
+		dropSection(this.sid + '_killswitch');
 	},
 
 	renderFormOptions: function(s) {

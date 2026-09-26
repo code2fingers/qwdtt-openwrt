@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/cipher"
 	"crypto/tls"
 	"fmt"
 	"io"
@@ -22,21 +23,25 @@ import (
 )
 
 const (
-	workerSendBuf      = 128
-	sessionReadTimeout = 30 * time.Minute // Increased from 60s to 30min
+	workerSendBuf = 128
+	// How often a silent session wakes up, rather than how long one may stay
+	// silent: the Reader re-arms it on expiry instead of acting on it. What
+	// notices a tunnel that has stopped delivering is the watch in netifd.go.
+	sessionReadTimeout = 30 * time.Minute
 	readBufSize        = 1600
 	socketBufSize      = 625 * 1024
 	keepaliveByte      = 0xFF // keepalive marker (DTLS-level or a direct obfs frame)
-	// keepaliveInterval: 1s (as in the reference client) - keeps the TURN
-	// permission/NAT mapping "warm" on each of the session's 18-108 relay
-	// sockets more aggressively than the previous 15s/5s.
+	// Keeps the TURN permission and the NAT mapping warm on each of the
+	// session's relay sockets. It is not a liveness check and cannot be made
+	// into one: nothing answers it. Measured on a router, all that comes back
+	// on an idle tunnel is the relay's own STUN binding response.
 	keepaliveInterval = 10 * time.Second
-	// keepaliveMinSize/keepaliveMaxSize: the keepalive packet no longer has a
-	// fixed size (it used to be 1 byte every time) - a random length of
-	// 25-44 bytes imitates the "silence" of OPUS in a real call, while a
-	// constant size at even intervals is an easily recognisable pattern for DPI.
-	keepaliveMinSize = 25
-	keepaliveMaxSize = 20 // range added on top of keepaliveMinSize (rand.Intn(20))
+	// A random length rather than a fixed one, because a constant size at a
+	// constant interval is an easy pattern for DPI; 25 to 44 bytes passes for
+	// the silence between words of an OPUS call. The second is a range added
+	// on top of the first, not a ceiling of its own.
+	keepaliveMinSize   = 25
+	keepaliveSizeRange = 20
 )
 
 // obfsDirectConn is a net.Conn over the TURN relay WITHOUT DTLS.
@@ -51,7 +56,7 @@ const (
 type obfsDirectConn struct {
 	relay      net.PacketConn
 	peer       net.Addr
-	wrapKey    []byte
+	aead       cipher.AEAD
 	cfg        *ObfsConfig
 	writeState *ObfsState
 }
@@ -66,7 +71,7 @@ func (c *obfsDirectConn) Read(b []byte) (int, error) {
 		if !obfsIsRTPPacket(wire[:n]) {
 			continue
 		}
-		m, unwrapErr := obfsUnwrapPacket(c.wrapKey, wire[:n], b)
+		m, unwrapErr := obfsUnwrapPacket(c.aead, wire[:n], b)
 		if unwrapErr != nil {
 			continue
 		}
@@ -75,7 +80,7 @@ func (c *obfsDirectConn) Read(b []byte) (int, error) {
 }
 
 func (c *obfsDirectConn) Write(b []byte) (int, error) {
-	wrapped, err := obfsWrapPacket(c.wrapKey, b, c.cfg, c.writeState)
+	wrapped, err := obfsWrapPacket(c.aead, b, c.cfg, c.writeState)
 	if err != nil {
 		return 0, err
 	}
@@ -291,7 +296,7 @@ func RunSession(
 		}
 	}()
 
-	useWrap := len(tp.WrapKey) == wrapKeyLen
+	useWrap := tp.WrapAEAD != nil
 
 	var activeConn net.Conn
 	var relayWg sync.WaitGroup
@@ -303,7 +308,7 @@ func RunSession(
 		activeConn = &obfsDirectConn{
 			relay:      relay,
 			peer:       peer,
-			wrapKey:    tp.WrapKey,
+			aead:       tp.WrapAEAD,
 			cfg:        obfsCfg,
 			writeState: obfsWriteState,
 		}
@@ -347,7 +352,7 @@ func RunSession(
 						log.Printf("[SESSION #%d] OBFS unwrap: unexpected packet (n=%d)", sessionID, n)
 						continue
 					}
-					m, wrapErr := obfsUnwrapPacket(tp.WrapKey, payload, plain)
+					m, wrapErr := obfsUnwrapPacket(tp.WrapAEAD, payload, plain)
 					if wrapErr != nil {
 						log.Printf("[SESSION #%d] OBFS unwrap: %v (n=%d)", sessionID, wrapErr, n)
 						continue
@@ -376,7 +381,7 @@ func RunSession(
 				out := b[:n]
 				if useWrap {
 					if dtlsObfsCfg != nil && obfsWriteState != nil {
-						wrapped, wrapErr := obfsWrapPacket(tp.WrapKey, out, dtlsObfsCfg, obfsWriteState)
+						wrapped, wrapErr := obfsWrapPacket(tp.WrapAEAD, out, dtlsObfsCfg, obfsWriteState)
 						if wrapErr != nil {
 							log.Printf("[SESSION #%d] OBFS wrap: %v", sessionID, wrapErr)
 							return
@@ -442,9 +447,6 @@ func RunSession(
 		activeConn = dtlsConn
 	}
 	defer activeConn.Close()
-
-	stats.ActiveConnections.Add(1)
-	defer stats.ActiveConnections.Add(-1)
 
 	// Config request
 	if getConfig && configCh != nil && tp.RawMode {
@@ -559,7 +561,7 @@ func RunSession(
 			case <-sessCtx.Done():
 				return
 			case <-t.C:
-				size := keepaliveMinSize + rand.Intn(keepaliveMaxSize)
+				size := keepaliveMinSize + rand.Intn(keepaliveSizeRange)
 				pkt := getPktBuf(size)
 				pkt[0] = keepaliveByte
 				copy(pkt[1:17], didBytes)
@@ -779,7 +781,7 @@ func RunPing(
 	var relayWg sync.WaitGroup
 	relayWg.Add(2)
 
-	useWrap := len(tp.WrapKey) == wrapKeyLen
+	useWrap := tp.WrapAEAD != nil
 	var obfsCfg *ObfsConfig
 	var obfsWriteState *ObfsState
 	if useWrap {
@@ -803,7 +805,7 @@ func RunPing(
 				if !obfsIsRTPPacket(payload) {
 					continue
 				}
-				m, err := obfsUnwrapPacket(tp.WrapKey, payload, plain)
+				m, err := obfsUnwrapPacket(tp.WrapAEAD, payload, plain)
 				if err != nil {
 					continue
 				}
@@ -825,7 +827,7 @@ func RunPing(
 			}
 			out := b[:n]
 			if useWrap {
-				wrapped, err := obfsWrapPacket(tp.WrapKey, out, obfsCfg, obfsWriteState)
+				wrapped, err := obfsWrapPacket(tp.WrapAEAD, out, obfsCfg, obfsWriteState)
 				if err != nil {
 					return
 				}

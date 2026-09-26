@@ -31,3 +31,7 @@
 
 # Staged by CI before the SDK runs; never committed.
 /qwdtt-client/files/qwdtt-client
+
+# What `go build ./...` leaves in client/. The binary is named for the module
+# rather than for the package, so it does not match the pattern above.
+/client/wg-turn-client

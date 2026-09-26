@@ -216,6 +216,12 @@ jobs:
       - name: config conversion
         run: sh qwdtt-client/tests/migrate.sh
 
+      # It deletes sections of /etc/config/network unattended on every install,
+      # so being too eager costs a route somebody wrote by hand and being too
+      # shy leaves the router refusing traffic for a tunnel that is gone.
+      - name: uci-defaults sweep
+        run: sh qwdtt-client/tests/defaults.sh
+
       # An untranslated string does not fail: LuCI falls back to the English
       # source, and the page still renders. The users this project has are
       # Russian-speaking, so it has to be caught here or not at all.

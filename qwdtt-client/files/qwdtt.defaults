@@ -44,15 +44,47 @@ done
 uci commit firewall
 /etc/init.d/firewall reload
 
-# netifd reads /lib/netifd/proto only when it starts, so a protocol installed
-# into a running system stays invisible to it and `ifup` answers NO_DEVICE - a
-# reload does not help, because the handler list is not part of the config. On
-# a first boot netifd is not up yet and there is nothing to restart.
+# Routing left behind by a tunnel that was deleted before the interface editor
+# knew to take it along. The kill switch is an unreachable default and, with
+# the tunnel gone, the only route left in a table the rule still looks up - so
+# everything that rule matches is refused outright, by a tunnel that is no
+# longer in the config and has nothing left to explain it. Both sections go:
+# with no interface they describe nothing.
+#
+# Matched on the shape this package writes rather than on the name alone, so a
+# route somebody else happened to name the same way is left where it is.
+swept=0
+for kill in $(uci -q show network | \
+	sed -n "s/^network\.\([^.=]*_killswitch\)=route$/\1/p"); do
+	section=${kill%_killswitch}
+	[ -z "$(uci -q get "network.$section")" ] || continue
+	[ "$(uci -q get "network.$kill.type")" = unreachable ] || continue
+	[ "$(uci -q get "network.$kill.interface")" = loopback ] || continue
+	logger -t qwdtt "network.$section is gone: removing $kill and ${section}_rule"
+	uci -q delete "network.$kill"
+	uci -q delete "network.${section}_rule"
+	swept=1
+done
+[ "$swept" = 0 ] || { uci commit network; /etc/init.d/network reload; }
+
+# netifd reads /lib/netifd/proto only when it starts, and fixes each protocol's
+# option list at the same moment. Neither is part of the config, so a reload
+# does not help. A protocol installed into a running system is invisible and
+# `ifup` answers NO_DEVICE; an upgrade that adds an option is quieter and
+# worse, because netifd drops the option before the handler sees it -
+# json_get_vars returns nothing, the handler's own default applies, and the
+# tunnel comes up ignoring what the operator just set.
+#
+# Comparing the options covers both: a protocol netifd has never heard of is
+# missing all of them. On a first boot netifd is not up yet and there is
+# nothing to restart.
 if handlers=$(ubus call network get_proto_handlers 2>/dev/null); then
-	case "$handlers" in
-	*'"qwdtt"'*) ;;
-	*) /etc/init.d/network restart ;;
-	esac
+	for opt in $(sed -n 's/^[[:space:]]*proto_config_add_[a-z]*[[:space:]]*"\([a-z_]*\)".*/\1/p' \
+		/lib/netifd/proto/qwdtt.sh); do
+		[ -z "$(jsonfilter -s "$handlers" -e "@.qwdtt.validate.$opt")" ] || continue
+		/etc/init.d/network restart
+		break
+	done
 fi
 
 exit 0

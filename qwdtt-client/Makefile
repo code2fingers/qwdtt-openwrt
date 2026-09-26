@@ -123,9 +123,15 @@ uci commit firewall
 # again on every boot after, with no qwdtt left to explain it. The rule is kept:
 # a rule whose table has no matching route falls through to the next one. So is
 # the interface, which is where the credentials are.
-for tunnel in $$(uci -q show network | \
-	sed -n "s/^network\.\([^.=]*\)\.proto='qwdtt'$$/\1/p"); do
-	uci -q delete "network.$${tunnel}_killswitch"
+#
+# Found by its shape rather than by walking the qwdtt interfaces, because one
+# whose interface has already been deleted belongs to no interface at all and
+# was the case the walk missed.
+for kill in $$(uci -q show network | \
+	sed -n "s/^network\.\([^.=]*_killswitch\)=route$$/\1/p"); do
+	[ "$$(uci -q get "network.$$kill.type")" = unreachable ] || continue
+	[ "$$(uci -q get "network.$$kill.interface")" = loopback ] || continue
+	uci -q delete "network.$$kill"
 done
 uci commit network
 [ ! -x /etc/init.d/network ] || /etc/init.d/network reload >/dev/null 2>&1

@@ -45,6 +45,11 @@ function makeUci() {
 	};
 }
 
+// The object registerProtocol was handed, kept because not every hook has a
+// widget to reach it by: deleteConfiguration is called by the interface
+// editor's Delete button and by nothing else.
+let lastProto = null;
+
 function load(uci, formvalues) {
 	const opts = {};
 	const section = {
@@ -78,6 +83,7 @@ function load(uci, formvalues) {
 	const proto = fn(form, network, uci, {}, { resource: () => '' },
 		s => s, () => ({}));
 
+	lastProto = proto;
 	proto.renderFormOptions.call({ sid: 'qwdtt0' }, section);
 	return opts;
 }
@@ -110,6 +116,43 @@ function check(what, got, want) {
 		opts._lanroute.cfgvalue('qwdtt0'), '1');
 	check('both point at the table the tunnel was seeded with',
 		uci.get('network', 'qwdtt0_killswitch', 'table'), '51820');
+}
+
+// --- deleting a tunnel takes its routing with it ---------------------------
+{
+	const uci = makeUci();
+	uci.add('network', 'interface', 'qwdtt0');
+	uci.set('network', 'qwdtt0', 'proto', 'qwdtt');
+	load(uci, { defaultroute: '1', ip4table: null });
+
+	// Left behind, the kill switch is the only route remaining in a table the
+	// rule still looks up, so everything the rule matches is refused - by a
+	// tunnel that is no longer there to explain it.
+	lastProto.deleteConfiguration.call({ sid: 'qwdtt0' });
+	check('deleting a tunnel removes its rule and its kill switch',
+		[ uci.get('network', 'qwdtt0_rule'),
+		  uci.get('network', 'qwdtt0_killswitch') ], [ null, null ]);
+}
+
+// --- the rule's priority stays clear of netifd's ---------------------------
+// netifd gives an interface with an ip4table a source rule at 10000, so a
+// first tunnel handed the same number leaves two rules whose order is decided
+// by insertion and written down nowhere.
+{
+	const uci = makeUci();
+	uci.add('network', 'interface', 'qwdtt0');
+	uci.set('network', 'qwdtt0', 'proto', 'qwdtt');
+	load(uci, { defaultroute: '1', ip4table: null });
+	check('the first tunnel does not land on the priority netifd uses',
+		uci.get('network', 'qwdtt0_rule', 'priority'), '9999');
+
+	uci.remove('network', 'qwdtt0_rule');
+	uci.add('network', 'rule', 'other');
+	uci.set('network', 'other', 'priority', '10001');
+	const again = load(uci, { defaultroute: '1', ip4table: '51820' });
+	again._lanroute.write('qwdtt0', '1');
+	check('nor does it when the rule below would have put it there',
+		uci.get('network', 'qwdtt0_rule', 'priority'), '9999');
 }
 
 // --- the rule is written once, then left alone -----------------------------

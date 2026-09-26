@@ -113,13 +113,20 @@ function captchasOf(net) {
 /* The one figure on this page taken from traffic rather than from a session
    being established, and from the inbound direction alone: what the reader
    wants to know is whether the far end is still delivering, and bytes this
-   router sent say nothing about that. Everything above it counts from a worker reporting ready,
-   so a server that accepts the sessions and forwards nothing leaves the worker
-   count full and the session clock rising: a tunnel that reads as eight hours
-   healthy while nothing has crossed it. This is what tells those apart.
+   router sent say nothing about that. Everything above it counts from a worker
+   reporting ready, so a server that accepts the sessions and forwards nothing
+   leaves the worker count full and the session clock rising: a tunnel that
+   reads as eight hours healthy while nothing has crossed it. This is what
+   tells those apart.
 
-   An idle tunnel is not a broken one, so no verdict is offered here, only the
-   figure. */
+   It used to be unreadable on a quiet tunnel, because an idle one and a dead
+   one both showed the figure climbing. It no longer is: after half a minute
+   of nothing arriving the client sends an echo through the tunnel to the
+   server and the answer lands here like any other traffic, so on a tunnel
+   that is merely unused this now sits under a minute. Climbing past that
+   means the tunnel is not answering, and the client gives it up at two
+   minutes and has netifd rebuild it - so a reading much above that is the
+   page having caught it mid-rebuild. */
 function idleOf(net) {
 	var idle = (net.qwdttRuntime || {}).idle_for;
 

@@ -318,8 +318,8 @@ func main() {
 		log.Fatal("[CLIENT] -password is required: the WRAP key is now derived from the connection password")
 	}
 
-	// WRAP key
-	wrapKey, err := deriveWrapKey(*connPassword)
+	// Built once here: every packet is sealed with it.
+	wrapAEAD, err := deriveWrapAEAD(*connPassword)
 	if err != nil {
 		log.Fatalf("[CLIENT] WRAP key derive: %v", err)
 	}
@@ -351,7 +351,7 @@ func main() {
 		Host:         *host,
 		Port:         *port,
 		Hashes:       hashes,
-		WrapKey:      wrapKey,
+		WrapAEAD:     wrapAEAD,
 		ObfsMode:     normalizeObfsMode(*obfsMode),
 		NoDTLS:       *noDTLS,
 		RawMode:      activeConnMode == "rawtun",
@@ -400,7 +400,7 @@ func main() {
 	numGroups := (*numW + workersPerGroup - 1) / workersPerGroup
 
 	wrapStatus := "OFF"
-	if len(wrapKey) == wrapKeyLen {
+	if wrapAEAD != nil {
 		wrapStatus = "ON (password HKDF + RTP AEAD)"
 	}
 
@@ -437,7 +437,7 @@ func main() {
 	log.Println("[CLIENT] ═══════════════════════════════════════")
 
 	stats := NewStats()
-	startNetifdTrafficWatch(ctx, stats)
+	startNetifdTrafficWatch(ctx, cancel, stats, *tunName, peer.IP)
 
 	var disp *Dispatcher
 	if activeConnMode == "rawtun" {

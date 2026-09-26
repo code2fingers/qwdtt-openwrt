@@ -12,7 +12,7 @@
 # name rather than dropped quietly.
 
 OLD=${QWDTT_CONFIG:-/etc/config/qwdtt}
-KILL_METRIC=4096
+KILL_METRIC=1000000
 
 [ -f "$OLD" ] || exit 0
 
@@ -38,6 +38,11 @@ for sec in $(uci -q show qwdtt | sed -n "s/^qwdtt\.\([^.=]*\)=qwdtt$/\1/p"); do
 	table=${table:-51820}
 	priority=$(get "$sec" rule_priority)
 	priority=${priority:-10000}
+	# netifd gives an interface that has an ip4table a source rule of its own
+	# at 10000, which is also what the old configuration defaulted to. Two
+	# rules at one priority are ordered by whichever the kernel was handed
+	# first and by nothing written down, so the converted one steps aside.
+	[ "$priority" != 10000 ] || priority=9999
 	mark=$(get "$sec" fwmark)
 	lan=$(get "$sec" lan_interface)
 	mode=$(get "$sec" mode)
