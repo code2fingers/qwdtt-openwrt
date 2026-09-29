@@ -80,6 +80,57 @@ func notifyNetifdError(message string) {
 	})
 }
 
+// How many times the server may ignore the configuration request before the
+// interface is told.
+//
+// The one refusal the server cannot state is the one that matters most here.
+// Every packet is sealed with a key derived from the connection password, so
+// a wrong password leaves the server unable to read the request at all: there
+// is no DENIED to send back and nothing arrives. From this side that is a
+// timeout, which is also what an unreachable server looks like, so the code
+// says both and neither is guessed at.
+//
+// Three, because one is a lost packet and the tunnel would have retried
+// anyway. The restart is deliberately not blocked: a server that is merely
+// down comes back, and an interface that had blocked would not.
+const netifdNoConfigAttempts = 3
+
+var (
+	netifdNoConfigMu   sync.Mutex
+	netifdNoConfigSeen int
+	netifdNoConfigOnce sync.Once
+)
+
+func reportNetifdConfigTimeout() {
+	if !netifdManaged {
+		return
+	}
+
+	netifdNoConfigMu.Lock()
+	netifdNoConfigSeen++
+	enough := netifdNoConfigSeen >= netifdNoConfigAttempts
+	netifdNoConfigMu.Unlock()
+
+	if !enough {
+		return
+	}
+	netifdNoConfigOnce.Do(func() {
+		log.Printf("[NETIFD] the server has not answered the configuration request %d times, telling the interface",
+			netifdNoConfigAttempts)
+		if err := runNativeCommandEnv([]string{"ERROR=QWDTT_NO_CONFIG", "BLOCK=0"}, netifdErrorScript); err != nil {
+			log.Printf("[NETIFD] reporting QWDTT_NO_CONFIG: %v", err)
+		}
+	})
+}
+
+// Called when the server does answer, so a tunnel that came up after a slow
+// start is not left counting failures towards a report it no longer deserves.
+func clearNetifdConfigTimeout() {
+	netifdNoConfigMu.Lock()
+	netifdNoConfigSeen = 0
+	netifdNoConfigMu.Unlock()
+}
+
 func notifyNetifd(device, address, dnsCSV string, mtu int) error {
 	if os.Getenv("INTERFACE") == "" {
 		return fmt.Errorf("INTERFACE is unset: -netifd only works under the qwdtt protocol handler")

@@ -457,7 +457,20 @@ func RunSession(
 				return false, confErr
 			}
 			log.Printf("[WORKER #%d] RAW config error: %v", sessionID, confErr)
+			// The server saying nothing is how a wrong password arrives: the
+			// request is sealed with a key derived from it, so the server
+			// cannot read it and has nothing to refuse. Silence is also what
+			// an unreachable server sounds like, and this cannot tell them
+			// apart, so it reports the silence and the interface says so.
+			reportNetifdConfigTimeout()
+			// And the session ends rather than carrying on. Without the
+			// address there is no device and nothing this worker can do, and
+			// it is the only worker asking: staying up meant one lost answer
+			// left the tunnel down for the life of the process, with nobody
+			// to ask again. Ending it returns the worker to the group's retry.
+			return false, fmt.Errorf("no RAW config: %w", confErr)
 		} else if ip != "" {
+			clearNetifdConfigTimeout()
 			conf := fmt.Sprintf("RAWCONF:%s|%s|%d", ip, dnsCSV, mtu)
 			select {
 			case configCh <- conf:
@@ -468,7 +481,11 @@ func RunSession(
 				log.Printf("[WORKER #%d] The RAW config was already delivered by another worker", sessionID)
 			}
 		} else {
-			log.Printf("[WORKER #%d] The server has not assigned a raw IP yet, retrying later", sessionID)
+			// Same again, for the server answering that it has no address for
+			// us yet: "retrying later" was not true of anything, because this
+			// session went on to carry no config and ask no more.
+			log.Printf("[WORKER #%d] The server has not assigned a raw IP yet, asking again", sessionID)
+			return false, fmt.Errorf("no RAW config: the server has not assigned an address")
 		}
 	} else if getConfig && configCh != nil {
 		conf, confErr := RequestConfig(activeConn, localPort, deviceID, password)

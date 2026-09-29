@@ -296,15 +296,25 @@ function dropSection(name) {
 [
 	[ 'MISSING_PEER_HOST',      _('No server address is set') ],
 	[ 'MISSING_HASH',           _('No VK call hash is set') ],
-	[ 'NAME_TOO_LONG',          _('The interface name is longer than the 15 characters a TUN device may have') ],
-	[ 'MISSING_IP4TABLE',       _('No routing table is set, and the tunnel cannot use the main one: its default route would carry the client\'s own traffic to VK') ],
+	[ 'NAME_TOO_LONG',          _('Interface name longer than 15 characters (the TUN device limit)') ],
+	[ 'MISSING_IP4TABLE',       _('No routing table (ip4table) set; the tunnel needs its own') ],
 	[ 'MISSING_DEVICE_ID',      _('No device ID is set') ],
 	[ 'DUPLICATE_DEVICE_ID',    _('Another qWDTT interface already uses this device ID') ],
 	[ 'QWDTT_WRONG_PASSWORD',   _('The server rejected the connection password') ],
 	[ 'QWDTT_PASSWORD_EXPIRED', _('The connection password has expired') ],
-	[ 'QWDTT_DEVICE_MISMATCH',  _('The connection password belongs to another device ID. One password is bound to one device, so a second router needs its own.') ],
-	[ 'QWDTT_AUTH_FAILED',      _('The server refused this tunnel. Check the password and the device ID.') ],
-	[ 'QWDTT_HASH_DEAD',        _('The VK call behind this hash is closed. Replace the hash.') ]
+	[ 'QWDTT_DEVICE_MISMATCH',  _('Password is bound to another device ID: use a separate one') ],
+	[ 'QWDTT_AUTH_FAILED',      _('The server refused this tunnel: check password and device ID') ],
+	[ 'QWDTT_HASH_DEAD',        _('The VK call behind this hash is closed. Replace the hash.') ],
+	/* The one refusal the server cannot state. Every packet is sealed with a
+	   key derived from the connection password, so a wrong one leaves the
+	   server unable to read the request at all: it has nothing to refuse and
+	   says nothing back. That is also what an unreachable server sounds like,
+	   and the client cannot tell them apart, so all three are named.
+
+	   Every message here is one line in the status box on Network ->
+	   Interfaces, which wraps past about seventy characters into something
+	   nobody reads. tests/options.js holds them to that. */
+	[ 'QWDTT_NO_CONFIG',        _('The server did not answer: check the address, port and password') ]
 ].forEach(function(e) {
 	network.registerErrorCode(e[0], e[1]);
 });

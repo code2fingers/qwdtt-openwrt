@@ -168,6 +168,37 @@ func NewDispatcherPendingTUN(ctx context.Context, stats *Stats) *Dispatcher {
 func (d *Dispatcher) AttachTUN(f *os.File) {
 	d.tunFile = f
 	close(d.ready)
+
+	// The sessions that registered while there was nothing to attach them to
+	// have been reported as carrying nothing, which they were. Now they are.
+	d.mu.Lock()
+	count := len(d.workers)
+	d.mu.Unlock()
+	d.reportWorkers(count)
+}
+
+// Whether there is anything to carry traffic on yet. In rawtun mode the
+// device does not exist until the server has answered with an address, and
+// until then a registered worker cannot move a packet however well its
+// session went.
+func (d *Dispatcher) attached() bool {
+	select {
+	case <-d.ready:
+		return true
+	default:
+		return false
+	}
+}
+
+// The count as the status page should read it: how many sessions are carrying
+// traffic, not how many exist. A tunnel whose server never answered reported
+// thirty-six of thirty-six while it had no device at all, which is the most
+// reassuring number on the page saying the opposite of the truth.
+func (d *Dispatcher) reportWorkers(count int) {
+	if !d.attached() {
+		count = 0
+	}
+	reportNetifdWorkers(count)
 }
 
 // Bounded, because readLoop can be parked in a blocking read on the TUN device
@@ -198,7 +229,7 @@ func (d *Dispatcher) Register(w *WorkerSlot) {
 	count := len(d.workers)
 	d.mu.Unlock()
 	log.Printf("[DISP] Worker #%d registered (total: %d)", w.ID, count)
-	reportNetifdWorkers(count)
+	d.reportWorkers(count)
 }
 
 func (d *Dispatcher) Unregister(slot *WorkerSlot) {
@@ -217,7 +248,7 @@ func (d *Dispatcher) Unregister(slot *WorkerSlot) {
 	d.rrCount = 0
 	d.mu.Unlock()
 	log.Printf("[DISP] Worker #%d disconnected (remaining: %d)", slot.ID, remaining)
-	reportNetifdWorkers(remaining)
+	d.reportWorkers(remaining)
 }
 
 // readLoop reads packets (from the local WG loopback or the TUN) and spreads

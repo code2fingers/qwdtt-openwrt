@@ -155,6 +155,18 @@ function stateOf(net) {
 	var device = net.getL3Device() || net.getDevice();
 
 	if (!net.isUp()) {
+		/* Whatever netifd was told about why. Without this the column said
+		   "connecting" and nothing else while a tunnel sat refused, and the
+		   reason - which the interface page already had - was a page away
+		   from the page somebody opens to ask what is wrong. */
+		var errors = net.getErrors() || [];
+		if (errors.length) {
+			return E('span', {}, errors.map(function(err) {
+				return E('div', { 'class': 'qwdtt-error' }, [
+					E('strong', {}, [ _('Error') + ': ' ]), err
+				]);
+			}));
+		}
 		return L.itemlist(E('span'), [
 			null, E('em', net.isDynamic() || net.getUptime() > 0
 				? _('connecting') : _('down'))
@@ -251,9 +263,14 @@ function checkSection(nets) {
 			'style': 'margin:5px 0'
 		},
 		nets.map(function(net) {
-			var device = net.getL3Device() || net.getDevice();
-			return E('option', { 'value': device ? device.getName() : net.getName() },
-				[ net.getName() ]);
+			/* The interface name, not the device's. The TUN device is named
+			   after the section - the handler refuses a name over fifteen
+			   characters for exactly that reason - so they are the same thing
+			   while the tunnel is up. While it is down there is no L3 device,
+			   and LuCI stands in a placeholder called qwdtt-<name>, which is
+			   what ping was being asked to use: "bad address 'qwdtt-qwdtt0'"
+			   on a tunnel somebody was trying to find out about. */
+			return E('option', { 'value': net.getName() }, [ net.getName() ]);
 		}));
 
 	/* The widget the firewall pages use for an address: the resolvers worth
@@ -335,6 +352,21 @@ function checkSection(nets) {
 					return pump();
 				});
 			})();
+		}).then(function() {
+			/* Both of ping's refusals - a device it does not know, an interface
+			   with no route - go to stderr, and the stream carries stdout only,
+			   so the box was left holding the command line and nothing else.
+			   When the run ends without ping's own summary line, ask rpcd for
+			   the same command once more: that returns stderr and the exit
+			   status, and a ping that failed this way fails again at once. */
+			if (/packets transmitted/.test(out.value))
+				return;
+			return fs.exec('/bin/ping', args).then(function(res) {
+				if (res.stderr)
+					out.value += res.stderr;
+				if (res.code)
+					out.value += _('exit status %d').format(res.code) + '\n';
+			});
 		}).catch(function(err) {
 			out.value += '\n' + err;
 		});

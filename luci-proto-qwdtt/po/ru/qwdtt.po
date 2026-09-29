@@ -149,11 +149,11 @@ msgstr "Не задан адрес сервера"
 msgid "No VK call hash is set"
 msgstr "Не задан ни один хеш звонка VK"
 
-msgid "The interface name is longer than the 15 characters a TUN device may have"
-msgstr "Имя интерфейса длиннее 15 символов, а столько принимает имя TUN-устройства"
+msgid "Interface name longer than 15 characters (the TUN device limit)"
+msgstr "Имя интерфейса длиннее 15 символов (предел TUN-устройства)"
 
-msgid "No routing table is set, and the tunnel cannot use the main one: its default route would carry the client's own traffic to VK"
-msgstr "Не задана таблица маршрутизации, а основную туннель использовать не может: его маршрут по умолчанию увел бы в туннель и собственный трафик клиента к VK"
+msgid "No routing table (ip4table) set; the tunnel needs its own"
+msgstr "Не задана таблица маршрутизации (ip4table): туннелю нужна своя"
 
 msgid "No device ID is set"
 msgstr "Не задан идентификатор устройства"
@@ -167,11 +167,14 @@ msgstr "Сервер не принял пароль подключения"
 msgid "The connection password has expired"
 msgstr "Срок действия пароля подключения истек"
 
-msgid "The connection password belongs to another device ID. One password is bound to one device, so a second router needs its own."
-msgstr "Пароль подключения принадлежит другому идентификатору устройства. Один пароль привязан к одному устройству, поэтому второму роутеру нужен свой."
+msgid "Password is bound to another device ID: use a separate one"
+msgstr "Пароль привязан к другому устройству: нужен отдельный"
 
-msgid "The server refused this tunnel. Check the password and the device ID."
-msgstr "Сервер отказал этому туннелю. Проверьте пароль и идентификатор устройства."
+msgid "The server refused this tunnel: check password and device ID"
+msgstr "Сервер отказал туннелю: проверьте пароль и идентификатор"
 
 msgid "The VK call behind this hash is closed. Replace the hash."
 msgstr "Звонок VK, которому принадлежит этот хеш, закрыт. Замените хеш."
+
+msgid "The server did not answer: check the address, port and password"
+msgstr "Сервер не ответил: проверьте адрес, порт и пароль"

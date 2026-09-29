@@ -95,3 +95,9 @@ msgstr "%s назад"
 
 msgid "nothing yet"
 msgstr "ещё ничего"
+
+msgid "Error"
+msgstr "Ошибка"
+
+msgid "exit status %d"
+msgstr "код завершения %d"

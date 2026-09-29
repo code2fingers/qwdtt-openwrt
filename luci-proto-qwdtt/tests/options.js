@@ -50,6 +50,10 @@ function makeUci() {
 // editor's Delete button and by nothing else.
 let lastProto = null;
 
+// Every error code the protocol registers, with its message, kept so the
+// messages can be held to the width of the box they are shown in.
+const registeredErrors = {};
+
 function load(uci, formvalues) {
 	const opts = {};
 	const section = {
@@ -74,7 +78,7 @@ function load(uci, formvalues) {
 	});
 
 	const network = {
-		registerErrorCode() {},
+		registerErrorCode(code, text) { registeredErrors[code] = text; },
 		registerProtocol(name, proto) { return proto; }
 	};
 
@@ -320,6 +324,39 @@ function check(what, got, want) {
 		}
 	}
 	check('every handler fallback was checked', seen > 0, true);
+}
+
+// --- the messages the interface page shows ---------------------------------
+// Each one is a single line in the status box on Network -> Interfaces and in
+// the Status column of Status -> qWDTT, which wrap past about seventy
+// characters into something nobody reads. The Russian is what most users see
+// there, so it is held to the same width, read straight out of the po file
+// rather than trusted.
+{
+	const LIMIT = 70;
+	const codes = Object.keys(registeredErrors);
+	check('the error codes were seen at all', codes.length > 0, true);
+
+	const ru = {};
+	let msgid = null;
+	for (const line of fs.readFileSync('luci-proto-qwdtt/po/ru/qwdtt.po', 'utf8').split('\n')) {
+		let m;
+		if ((m = line.match(/^msgid "(.*)"$/)))
+			msgid = m[1].replace(/\\"/g, '"');
+		else if ((m = line.match(/^msgstr "(.*)"$/)) && msgid !== null)
+			ru[msgid] = m[1].replace(/\\"/g, '"');
+	}
+
+	const long = [];
+	for (const code of codes) {
+		const en = registeredErrors[code];
+		if (en.length > LIMIT)
+			long.push(`${code} en (${en.length})`);
+		const tr = ru[en];
+		if (tr && [...tr].length > LIMIT)
+			long.push(`${code} ru (${[...tr].length})`);
+	}
+	check('every error message fits on one line of the interface page', long, []);
 }
 
 if (failed)
