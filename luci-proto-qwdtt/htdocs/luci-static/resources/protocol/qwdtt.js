@@ -568,6 +568,11 @@ return network.registerProtocol('qwdtt', {
 				return _('At least one worker is needed.');
 
 			hashes = this.section.formvalue(section_id, 'hash');
+			/* Undefined when the hash widget has not been instantiated: the
+			   ceiling was then taken from one hash and a tunnel whose saved
+			   list allows more was refused. Fall back to what is saved. */
+			if (hashes == null)
+				hashes = uci.get('network', section_id, 'hash');
 			hashes = parseHashes(Array.isArray(hashes) ? hashes : [ hashes ]);
 			/* From uci rather than the form: the field is not on this tab, and
 			   a tunnel set to account mode by hand is still held to the four

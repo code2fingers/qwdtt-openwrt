@@ -14,7 +14,7 @@
 			"uci": [ "network" ]
 		},
 		"write": {
-			"uci": [ "network", "firewall" ]
+			"uci": [ "network" ]
 		}
 	}
 }

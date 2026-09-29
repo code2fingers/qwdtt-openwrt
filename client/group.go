@@ -217,6 +217,10 @@ func WorkerGroup(
 				credsSnapshot.TurnURLs = cloneStringSlice(creds.TurnURLs)
 				credsMu.RUnlock()
 
+				// Captured before the session so the stale-binding branch below
+				// can tell an uplink that moved from a firewall that refused a
+				// source address which did not.
+				srcBefore := currentSource(peer.String())
 				configDelivered, sessErr := RunSession(ctx, tp, peer, d, localPort,
 					getConf, cc, wid, &credsSnapshot, deviceID, password, stats, allocateTicker.C)
 
@@ -229,12 +233,19 @@ func WorkerGroup(
 					}
 				}
 
-				// Reconnect at once rather than after the 5-15s backoff below:
-				// the failure is local, not VK's, so waiting only extends the
-				// outage.
+				// Reconnect at once rather than after the 5-15s backoff below,
+				// but only when the uplink actually moved: the failure is then
+				// local and waiting only extends the outage. A send that fails
+				// while the source address stays put is not a move but a
+				// standing refusal - a firewall EPERM, which repeats for as long
+				// as the rule stands - so that case backs off instead. Without
+				// it every worker settles in ~12s and re-allocates a TURN slot,
+				// which burns the VK quota (error 486) on a condition that will
+				// not clear on its own.
 				if isStaleBindingError(sessErr) {
-					log.Printf("[WORKER #%d] Uplink changed (%v), waiting for the address to settle", wid, sessErr)
+					log.Printf("[WORKER #%d] Source address unusable (%v), checking the uplink", wid, sessErr)
 					waitUplinkSettled(ctx, peer.String(), wid)
+					srcAfter := currentSource(peer.String())
 					// Every worker waits on the same address and so returns at
 					// the same instant. Ungated, all nine Allocate together and
 					// VK refuses the lot (error 486).
@@ -242,6 +253,14 @@ func WorkerGroup(
 						return
 					}
 					time.AfterFunc(rotationSpacing, func() { <-rotationGate })
+					if srcAfter == "" || srcAfter == srcBefore {
+						log.Printf("[WORKER #%d] The source address did not change; backing off before retrying", wid)
+						select {
+						case <-time.After(time.Duration(30+rand.Intn(31)) * time.Second):
+						case <-ctx.Done():
+							return
+						}
+					}
 					continue
 				}
 

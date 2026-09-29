@@ -154,7 +154,7 @@ refusal() {
 	fail=1
 }
 
-SECTIONS="$SECTIONS noserver nohash waytoolongfortun mainte twin loose nodevice"
+SECTIONS="$SECTIONS noserver nohash waytoolongfortun mainte twin loose nodevice sleeper waker"
 
 set_cfg noserver.proto qwdtt
 set_cfg noserver.ip4table 51822
@@ -214,6 +214,30 @@ set_cfg twin.peer_host vpn7.example
 set_cfg twin.hash hhh
 set_cfg twin.device_id openwrt-qwdtt0
 refusal "two tunnels with one device_id" twin DUPLICATE_DEVICE_ID
+
+# A disabled tunnel never connects, so its device_id must not block a new one.
+# The migration makes this reachable: it writes device_id=openwrt for every
+# legacy section that had none, so an enabled and a disabled tunnel can end up
+# sharing one, and then the enabled one has to come up regardless.
+set_cfg sleeper.proto qwdtt
+set_cfg sleeper.ip4table 51828
+set_cfg sleeper.peer_host vpnA.example
+set_cfg sleeper.hash kkk
+set_cfg sleeper.device_id openwrt-shared
+set_cfg sleeper.disabled 1
+set_cfg waker.proto qwdtt
+set_cfg waker.ip4table 51829
+set_cfg waker.peer_host vpnB.example
+set_cfg waker.hash lll
+set_cfg waker.device_id openwrt-shared
+SECTION=waker
+got=$(proto_qwdtt_setup waker 2>&1 | sed -n 's/^run: //p')
+case $got in
+/usr/bin/qwdtt-client*) ;;
+*)
+	echo "an enabled tunnel was refused for a device_id only a disabled one holds: ${got:-nothing ran}"
+	fail=1 ;;
+esac
 
 # --- teardown ---------------------------------------------------------------
 

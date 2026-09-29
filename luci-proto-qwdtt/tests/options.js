@@ -268,6 +268,20 @@ function check(what, got, want) {
 	ok('a VK account allows 4', '4', 4, 'account');
 	no('a VK account refuses 9', '9', 4, 'account');
 	ok('and is not held to whole groups', '3', 4, 'account');
+
+	// The hash list and the workers field share a tab, so the hash formvalue
+	// is normally present - but when that widget is not instantiated it is
+	// undefined, and the ceiling was then taken from one hash, refusing a
+	// tunnel whose saved list allows more. It falls back to the saved hashes.
+	{
+		const uci = makeUci();
+		uci.add('network', 'interface', 'qwdtt0');
+		uci.set('network', 'qwdtt0', 'ip4table', '51820');
+		uci.set('network', 'qwdtt0', 'hash', H(4));
+		const opts = load(uci, {});
+		check('the worker ceiling falls back to the saved hashes when the field is absent',
+			opts.workers.validate('qwdtt0', '108'), true);
+	}
 }
 
 // --- nothing here opens a dialog -------------------------------------------

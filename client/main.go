@@ -497,6 +497,17 @@ func main() {
 						cancel()
 						return
 					}
+					// Validated before anything is created. The device is
+					// persistent by design and cleanup() only closes the fd, so a
+					// check after createNativeRawTUN would leave a device behind on
+					// a bad RAWCONF; and the -netifd branch hands ip and mtu
+					// straight to the up-script, which does not check them, while
+					// configure() would reject them only once the device exists.
+					if net.ParseIP(ip).To4() == nil || mtu < 576 || mtu > 9000 {
+						log.Printf("[RAW] Invalid RAWCONF from the server: ip=%q mtu=%d", ip, mtu)
+						cancel()
+						return
+					}
 					nativeTun, nativeErr := createNativeRawTUN(*tunName)
 					if nativeErr == nil {
 						if *netifd {

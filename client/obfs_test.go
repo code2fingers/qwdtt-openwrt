@@ -100,9 +100,16 @@ func TestObfsUnwrapRejectsJunk(t *testing.T) {
 	}
 
 	cases := map[string][]byte{
-		"empty":          {},
-		"header only":    good[:rtpHeaderLenLegacy],
-		"truncated":      good[:len(good)-4],
+		"empty":       {},
+		"header only": good[:rtpHeaderLenLegacy],
+		"truncated": func() []byte {
+			// Cut from the ciphertext, not the tail: removing from the end can
+			// land wholly in the padding and leave the ciphertext and its footer
+			// intact, which made this pass or fail with the padding length. This
+			// keeps the footer and shortens the AEAD input.
+			b := append([]byte(nil), good[:rtpHeaderLenLegacy]...)
+			return append(b, good[rtpHeaderLenLegacy+4:]...)
+		}(),
 		"not rtp v2":     append([]byte{0x00}, good[1:]...),
 		"padding is nil": func() []byte { b := append([]byte(nil), good...); b[len(b)-1] = 0; return b }(),
 		"padding is all": func() []byte { b := append([]byte(nil), good...); b[len(b)-1] = 0xff; return b }(),

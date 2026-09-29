@@ -25,11 +25,17 @@ QWDTT_SELF=
 QWDTT_OWNER=
 
 qwdtt_claim() {
-	local section="$1" proto id
+	local section="$1" proto id disabled
 
 	[ -z "$QWDTT_OWNER" ] && [ "$section" != "$QWDTT_SELF" ] || return 0
 	config_get proto "$section" proto
 	[ "$proto" = qwdtt ] || return 0
+	# A disabled tunnel never connects, so it cannot flap the server, so it
+	# must not reserve its device_id against one that would. The migration
+	# makes this reachable: it writes device_id=openwrt for every legacy
+	# section that had none, so an enabled and a disabled tunnel can share one.
+	config_get_bool disabled "$section" disabled 0
+	[ "$disabled" = 0 ] || return 0
 	config_get id "$section" device_id
 	[ "$id" = "$QWDTT_ID" ] && QWDTT_OWNER="$section"
 	return 0
