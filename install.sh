@@ -150,16 +150,20 @@ install_via_opkg() {
 
 	msg "trust key:    $key_url"
 	mkdir -p /etc/opkg/keys
-	fetch "$key_url" /tmp/qwdtt-usign.pub ||
+	# mktemp, not a fixed /tmp name: the installer runs as root, and a
+	# predictable path a local user can pre-create lets them swap the key
+	# before usign reads it and it is moved into the trusted directory.
+	keyfile=$(mktemp) || die "could not create a temporary file for the trust key"
+	fetch "$key_url" "$keyfile" ||
 		die "could not download the trust key from $key_url"
 
 	# The file name under /etc/opkg/keys has to be the key's own id: opkg reads
 	# the signer id out of the signature and looks for a file of that name.
-	keyid=$(usign -F -p /tmp/qwdtt-usign.pub 2>/dev/null) ||
+	keyid=$(usign -F -p "$keyfile" 2>/dev/null) ||
 		die "the downloaded trust key is not a usign public key -- is the feed published?"
-	[ -n "$keyid" ] ||
+	echo "$keyid" | grep -qx '[0-9a-f]\{16\}' ||
 		die "the downloaded trust key is not a usign public key -- is the feed published?"
-	mv /tmp/qwdtt-usign.pub "/etc/opkg/keys/$keyid"
+	mv "$keyfile" "/etc/opkg/keys/$keyid"
 	msg "key id:       $keyid"
 
 	msg "feed:         $feed_url"
@@ -205,19 +209,12 @@ Next steps
        uci set network.qwdtt0.password='CONNECTION_PASSWORD'
        uci add_list network.qwdtt0.hash='VK_CALL_HASH'
 
-  2. Send the LAN into it, and hold the traffic rather than releasing it to
-     the WAN while the tunnel is down:
+  2. Send the LAN into it:
 
        uci set network.qwdtt0_rule=rule
        uci set network.qwdtt0_rule.in='lan'
        uci set network.qwdtt0_rule.lookup='51820'
        uci set network.qwdtt0_rule.priority='9999'
-       uci set network.qwdtt0_killswitch=route
-       uci set network.qwdtt0_killswitch.interface='loopback'
-       uci set network.qwdtt0_killswitch.target='0.0.0.0/0'
-       uci set network.qwdtt0_killswitch.type='unreachable'
-       uci set network.qwdtt0_killswitch.table='51820'
-       uci set network.qwdtt0_killswitch.metric='1000000'
        uci commit network
        ifup qwdtt0
 

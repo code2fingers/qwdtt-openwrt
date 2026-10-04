@@ -1,15 +1,5 @@
-# Bumps PKG_VERSION in both packages together and opens the release pull
-# request. Merging that request is the whole release: Release runs on the push
-# to main and creates the tag itself, once the build and the feed have passed.
-#
-# Nothing is tagged here. main takes pull requests only, so the commit a tag
-# must point at does not exist until a person has merged.
-#
-# Needs "Allow GitHub Actions to create and approve pull requests" enabled on
-# the repository, or the gh pr create below fails outright. That is one toggle
-# covering both halves; the approving half grants nothing while main requires
-# zero approvals, but raising that count makes it a bypass worth replacing
-# with a PAT.
+# Bumps PKG_VERSION in both packages and opens the release PR; merging it is the release.
+# Needs "Allow GitHub Actions to create and approve pull requests" on the repository.
 ---
 name: Bump version
 
@@ -54,9 +44,7 @@ jobs:
 
           MKS="qwdtt-client/Makefile luci-proto-qwdtt/Makefile"
 
-          # The two have to agree already. If they do not, the repository is
-          # in a state no single version describes, and a bump would only carry
-          # the disagreement forward under a new number.
+          # The two Makefiles must already agree; a bump would carry a disagreement forward.
           cur=""
           for mk in $MKS; do
             v=$(sed -n 's/^PKG_VERSION:=[[:space:]]*//p' "$mk" | tr -d '[:space:]')
@@ -67,9 +55,7 @@ jobs:
             fi
           done
 
-          # Exactly three numeric components. Two would make the arithmetic
-          # below read the same field twice, four would feed it "0.4", and an
-          # empty value passes every shape test there is.
+          # Exactly x.y.z: anything else breaks the arithmetic below.
           bad=0
           case "$cur" in
           "" | *[!0-9.]* | *..* | .* | *.) bad=1 ;;
@@ -124,10 +110,6 @@ jobs:
           EOF
           )
 
-          # Build does run on this pull request, but only as far as the
-          # changes job lets it: a release/v* branch is a version bump by
-          # construction, and the release that follows the merge rebuilds
-          # everything before it publishes anything.
           gh pr create --base main --head "release/v$new" \
             --title "release: $new" \
             --body "$body"

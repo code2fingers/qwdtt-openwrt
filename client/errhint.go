@@ -25,7 +25,7 @@ func workerErrorHint(err error) string {
 		return "no route to the server - check your internet connection; turn off other VPNs/proxies"
 	case strings.Contains(text, "lookup") || strings.Contains(text, "no such host"):
 		return "DNS is not resolving the address - change the DNS under ⚙️ → Network"
-	case strings.Contains(text, "turn quota") || strings.Contains(text, "quota") || strings.Contains(text, "486"):
+	case strings.Contains(text, "quota"):
 		return "VK is out of TURN slots - lower the number of streams, or change the VK hash/account"
 	case strings.Contains(text, "turn allocate"):
 		return "TURN relay error - VK may be throttling UDP; try another hash or captcha mode"

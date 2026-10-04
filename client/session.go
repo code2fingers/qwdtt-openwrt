@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/cipher"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -18,6 +19,7 @@ import (
 	"github.com/pion/dtls/v3"
 	"github.com/pion/dtls/v3/pkg/crypto/selfsign"
 	"github.com/pion/logging"
+	"github.com/pion/stun/v3"
 	"github.com/pion/transport/v4/stdnet"
 	"github.com/pion/turn/v5"
 )
@@ -100,28 +102,73 @@ func (c *obfsDirectConn) SetWriteDeadline(t time.Time) error { return c.relay.Se
 // Handshake semaphore: limit to 3 concurrent DTLS handshakes
 var handshakeSem = make(chan struct{}, 3)
 
-// NullLoggerFactory suppresses pion's logs
-type NullLoggerFactory struct{}
+// Everything pion has to say below a warning is dropped, and warnings and
+// errors are kept.
+//
+// All of it used to be dropped. pion refreshes the TURN allocation and its
+// permissions on a timer of its own, and when the relay refuses a refresh
+// that is where it says so - the allocation then lapses, inbound traffic
+// stops, and nothing on this side raises a thing because outbound still
+// works and the session never errors. A tunnel dying that way is the fault
+// this client has been chasing, and the one report of it was going in the
+// bin.
+//
+// Rare by construction: pion logs its ordinary business at info and below.
+type pionLoggerFactory struct{}
 
-func (n *NullLoggerFactory) NewLogger(_ string) logging.LeveledLogger { return &NullLogger{} }
+func (pionLoggerFactory) NewLogger(scope string) logging.LeveledLogger {
+	return &pionLogger{scope: scope}
+}
 
-type NullLogger struct{}
+type pionLogger struct{ scope string }
 
-func (n *NullLogger) Trace(_ string)                    {}
-func (n *NullLogger) Tracef(_ string, _ ...interface{}) {}
-func (n *NullLogger) Debug(_ string)                    {}
-func (n *NullLogger) Debugf(_ string, _ ...interface{}) {}
-func (n *NullLogger) Info(_ string)                     {}
-func (n *NullLogger) Infof(_ string, _ ...interface{})  {}
-func (n *NullLogger) Warn(_ string)                     {}
-func (n *NullLogger) Warnf(_ string, _ ...interface{})  {}
-func (n *NullLogger) Error(_ string)                    {}
-func (n *NullLogger) Errorf(_ string, _ ...interface{}) {}
+func (l *pionLogger) Trace(string)          {}
+func (l *pionLogger) Tracef(string, ...any) {}
+func (l *pionLogger) Debug(string)          {}
+func (l *pionLogger) Debugf(string, ...any) {}
+func (l *pionLogger) Info(string)           {}
+func (l *pionLogger) Infof(string, ...any)  {}
+func (l *pionLogger) Warn(msg string)       { log.Printf("[PION %s] %s", l.scope, msg) }
+func (l *pionLogger) Error(msg string)      { log.Printf("[PION %s] %s", l.scope, msg) }
+func (l *pionLogger) Warnf(f string, a ...any) {
+	log.Printf("[PION %s] "+f, append([]any{l.scope}, a...)...)
+}
+
+func (l *pionLogger) Errorf(f string, a ...any) {
+	log.Printf("[PION %s] "+f, append([]any{l.scope}, a...)...)
+}
 
 // connectedUDPConn wraps a connected UDP socket as a PacketConn
 type connectedUDPConn struct{ *net.UDPConn }
 
 func (c *connectedUDPConn) WriteTo(p []byte, _ net.Addr) (int, error) { return c.Write(p) }
+
+// The STUN error code behind a failed TURN request, or 0 when the failure
+// was not an error response from the relay at all.
+//
+// Read from the typed error pion returns rather than looked for in its text.
+// "401" and "486" are also three consecutive digits of an ephemeral port, and
+// a plain timeout on port 54011 used to count as an authentication failure -
+// which invalidated the credential cache and cost a fresh VK fetch, on the
+// shared app credentials VK rate-limits, over a packet that was merely lost.
+func stunErrorCode(err error) stun.ErrorCode {
+	var turnErr *stun.TurnError
+	if errors.As(err, &turnErr) {
+		return turnErr.ErrorCodeAttr.Code
+	}
+	return 0
+}
+
+// Whether the relay refused for quota. Its own code, not its text: 486 is
+// three digits an ephemeral port can contain, and a timeout read as quota put
+// the retry on the 30-60s quota delay instead of the usual 5-15s.
+func isQuotaRefusal(err error) bool {
+	if err == nil {
+		return false
+	}
+	return stunErrorCode(err) == stun.CodeAllocQuotaReached ||
+		strings.Contains(err.Error(), "Quota")
+}
 
 // dialTURNConn opens a socket to the TURN server and wraps it in the
 // net.PacketConn that turn.ClientConfig.Conn expects. UDP by default (as
@@ -172,11 +219,13 @@ func RunSession(
 ) (bool, error) {
 	configDelivered := false
 	// The error that made this session's socket unusable. Written by
-	// Writer/Reader, read at the end of RunSession.
-	var stalePathErr atomic.Value
+	// Writer/Reader, read at the end of RunSession. A pointer rather than an
+	// atomic.Value, which panics when the two store different error types.
+	var stalePathErr atomic.Pointer[error]
 	var firstWrapUp uint32
 	var firstWrapDown uint32
 	var firstWireWrite uint32
+	sendLimiter := tunnelSendLimiter
 	var firstWireRead uint32
 
 	if len(creds.TurnURLs) == 0 {
@@ -231,7 +280,7 @@ func RunSession(
 		Username:               creds.User,
 		Password:               creds.Pass,
 		RequestedAddressFamily: addrFamily,
-		LoggerFactory:          &NullLoggerFactory{},
+		LoggerFactory:          pionLoggerFactory{},
 	})
 	if err != nil {
 		return false, fmt.Errorf("TURN client: %w", err)
@@ -263,8 +312,7 @@ func RunSession(
 		if isAuthError(err) {
 			handleAuthError(creds.CacheStreamID)
 		}
-		errStr := err.Error()
-		if strings.Contains(errStr, "Quota") || strings.Contains(errStr, "486") {
+		if isQuotaRefusal(err) {
 			return false, fmt.Errorf("TURN quota: %w", err)
 		}
 		return false, fmt.Errorf("TURN Allocate: %w", err)
@@ -518,7 +566,7 @@ func RunSession(
 	// Register with the dispatcher
 	slot := &WorkerSlot{
 		ID:     sessionID,
-		SendCh: make(chan []byte, workerSendBuf),
+		SendCh: make(chan []byte, workerSendBufFor(sessionSendLimit)),
 		PrioCh: make(chan []byte, prioBuf),
 	}
 	d.Register(slot)
@@ -641,6 +689,17 @@ func RunSession(
 			// socket buffer, a bad network) would hold the Writer for half an hour
 			// while this worker's SendCh/PrioCh queue piles up and/or is dropped
 			// by the dispatcher above (see readLoop in dispatcher.go).
+			// Paced here because this is the one place every packet leaves
+			// by, whichever transport is underneath. The bucket is shared
+			// with every other session, so holding this Writer holds the
+			// tunnel rather than pushing the next chunk onto a relay that is
+			// no freer than this one.
+			if sendLimiter != nil {
+				if err := sendLimiter.WaitN(sessCtx, len(pkt)); err != nil {
+					putPktBuf(pkt)
+					return
+				}
+			}
 			_ = activeConn.SetWriteDeadline(time.Now().Add(3 * time.Second))
 			if atomic.CompareAndSwapUint32(&firstWireWrite, 0, 1) {
 				log.Printf("[WORKER #%d] [DEBUG] Sent the FIRST packet into the connection (%d bytes)", sessionID, len(pkt))
@@ -650,7 +709,7 @@ func RunSession(
 			if writeErr != nil {
 				log.Printf("[WORKER #%d] Writer error: %v", sessionID, writeErr)
 				if isStaleBindingError(writeErr) {
-					stalePathErr.Store(writeErr)
+					stalePathErr.Store(&writeErr)
 				}
 				return
 			}
@@ -674,7 +733,7 @@ func RunSession(
 				}
 				log.Printf("[WORKER #%d] Reader error: %v", sessionID, readErr)
 				if isStaleBindingError(readErr) {
-					stalePathErr.Store(readErr)
+					stalePathErr.Store(&readErr)
 				}
 				return
 			}
@@ -719,8 +778,8 @@ func RunSession(
 	// Returning nil here would have the group treat the session as cleanly
 	// closed and wait its usual 5-15s. For a dead local address that is the
 	// worst move available, so surface the error instead.
-	if err, _ := stalePathErr.Load().(error); err != nil {
-		return configDelivered, fmt.Errorf("socket local address is no longer usable: %w", err)
+	if err := stalePathErr.Load(); err != nil {
+		return configDelivered, fmt.Errorf("socket local address is no longer usable: %w", *err)
 	}
 	return configDelivered, nil
 }
@@ -771,7 +830,7 @@ func RunPing(
 		Username:               creds.User,
 		Password:               creds.Pass,
 		RequestedAddressFamily: addrFamily,
-		LoggerFactory:          &NullLoggerFactory{},
+		LoggerFactory:          pionLoggerFactory{},
 	})
 	if err != nil {
 		return 0, err

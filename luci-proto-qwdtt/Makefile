@@ -32,7 +32,13 @@ LUCI_DESCRIPTION:=Provides the qWDTT network protocol and its status page for Lu
 # protocol does not appear in the interface editor at all. rpcd-mod-ucode is
 # what loads /usr/share/rpcd/ucode/luci.qwdtt, which the status page reads the
 # tunnel's log through.
-LUCI_DEPENDS:=+luci-base +qwdtt-client +rpcd-mod-ucode
+#
+# luci-proto-wireguard is the other half of the tunnel's wireguard mode. The
+# qWDTT tab configures the relay; the interface that carries the traffic is an
+# ordinary WireGuard one, and without this the interface editor offers no way
+# to create it - the protocol is simply absent from the list, on the one page
+# the operator was sent to.
+LUCI_DEPENDS:=+luci-base +qwdtt-client +rpcd-mod-ucode +luci-proto-wireguard
 # Nothing here is compiled and nothing is architecture-specific: the package is
 # JavaScript, JSON and ucode, so one build serves every target.
 LUCI_PKGARCH:=all

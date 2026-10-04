@@ -13,7 +13,7 @@ import (
 // OpenWrt, so elsewhere it simply is not available.
 type tunnelProbe struct{}
 
-func newTunnelProbe(context.Context, string) (*tunnelProbe, error) {
+func newTunnelProbe(context.Context, string, net.IP) (*tunnelProbe, error) {
 	return nil, fmt.Errorf("the tunnel probe needs Linux")
 }
 

@@ -52,6 +52,25 @@ if [ "$(uci -q get "$snat.snat_ip")" != "$IPADDR" ]; then
 	[ ! -x /etc/init.d/firewall ] || /etc/init.d/firewall reload >/dev/null 2>&1
 fi
 
+# The zone matches qwdtt-named devices by its device='qwdtt+' wildcard, so a
+# conventionally named tunnel needs nothing here. One named off that pattern
+# reaches the zone only through its network list, which files/qwdtt.defaults
+# fills at install; a tunnel created later would otherwise sit in no zone, its
+# LAN forwarding and SNAT both silently missing.
+case "$INTERFACE" in
+qwdtt*) ;;
+*)
+	in_zone=0
+	for n in $(uci -q get firewall.qwdtt.network 2>/dev/null); do
+		[ "$n" = "$INTERFACE" ] && in_zone=1
+	done
+	if [ "$in_zone" = 0 ]; then
+		uci -q add_list "firewall.qwdtt.network=$INTERFACE"
+		uci commit firewall
+		[ ! -x /etc/init.d/firewall ] || /etc/init.d/firewall reload >/dev/null 2>&1
+	fi ;;
+esac
+
 # The device outlives the interface, so its counters carry on across a restart
 # while netifd starts the uptime again from this update - the two then describe
 # different spans and read as a contradiction. Recording the counters at the

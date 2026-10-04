@@ -11,6 +11,8 @@ type clientFileConfig struct {
 	Peer        string   `json:"peer"`
 	Hashes      []string `json:"hashes"`
 	Password    string   `json:"password"`
+	VKClientID  string   `json:"vk_client_id"`
+	VKClientSec string   `json:"vk_client_secret"`
 	DeviceID    string   `json:"device_id"`
 	Workers     int      `json:"workers"`
 	DNS         string   `json:"dns"`

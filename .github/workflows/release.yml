@@ -1,11 +1,5 @@
-# Publishing: the GitHub release and the signed feed on Pages. The building is
-# build.yml's, called below, so a release ships exactly what a pull request
-# built.
-#
-# Merging a version bump is the whole ceremony: this runs on the merge, and the
-# tag is created at the end rather than being the thing that starts it. That
-# ordering is the point -- a release that failed leaves no tag claiming it
-# happened, which is how a tag once ended up on a commit nobody released.
+# Publishes the GitHub release and the signed feed on Pages; building is build.yml's.
+# Runs on the merge of a version bump and creates the tag last, so a failed release leaves no tag.
 ---
 name: Release
 
@@ -26,10 +20,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # What is being released, and whether anything should be. Everything below
-  # reads the version from here rather than from the ref, because the Makefiles
-  # are what name the packages: a tag that disagrees with them would publish
-  # files nobody asked for.
+  # The version comes from the Makefiles, which name the packages; a tag has to agree with them.
   version:
     name: version
     runs-on: ubuntu-latest
@@ -64,8 +55,6 @@ jobs:
 
           case "${GITHUB_REF:-}" in
           refs/tags/v*)
-            # An explicit tag wins, but it has to agree with the tree it
-            # points at, or the assets are named for a version nobody tagged.
             tag=$GITHUB_REF_NAME
             if [ "${tag#v}" != "$cur" ]; then
               echo "tag $tag does not match PKG_VERSION $cur"
@@ -73,9 +62,7 @@ jobs:
             fi
             build=true; release=true ;;
           refs/heads/main)
-            # Release when the tree carries a version no tag claims yet, which
-            # is exactly the state a merged bump leaves behind. Any later push
-            # finds the tag present and does nothing.
+            # Release when the tree's version has no tag yet: the state a merged bump leaves.
             tag=v$cur
             if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
               echo "$tag already exists; nothing to release"
@@ -108,24 +95,16 @@ jobs:
       contents: read
     secrets: inherit
 
-  # A signed apk repository, which is the only way a LuCI-only user can install
-  # these. Uploading a package file through LuCI cannot work: its backend runs
-  # `apk add <file>` and never passes --allow-untrusted, and the individual
-  # .apk files are not signed with our key anyway -- OpenWrt's mkpkg takes no
-  # --sign, CONFIG_SIGNED_PACKAGES only signs the index. Signing the index here
-  # is what makes the packages trusted, because apk verifies the index and then
-  # trusts the packages by the hashes recorded in it.
+  # Signing the index is what makes the packages trusted: apk verifies the index, then each
+  # package by its hash. OpenWrt cannot sign the .apk files themselves.
   feed:
     name: publish feed
     needs: [version, build]
-    # Whenever anything was built, which the version job already decided.
-    #
-    # Publishing repositories only: a fork has neither the signing secrets nor
-    # a Pages site, so a contributor's dispatch would go red on something that
-    # is not their problem. A repository variable rather than a hardcoded name,
-    # so the sandbox can rehearse a release without carrying a patched copy of
-    # this file -- which is how a sandbox-only edit nearly reached main once.
-    if: vars.PUBLISH == 'true'
+    # vars.PUBLISH: forks have no signing keys or Pages, and the sandbox can rehearse unpatched.
+    # Only main or a tag: a dispatch on a branch would deploy unmerged packages over the live feed.
+    if: >-
+      vars.PUBLISH == 'true' &&
+      (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -154,8 +133,7 @@ jobs:
           name: packages-${{ needs.build.outputs.ipk_sdk }}
           path: staged-ipk
 
-      # The clients can share one directory: an architecture's .ipk and .apk
-      # differ by extension, and each is picked up by its own glob below.
+      # The clients share one directory: .ipk and .apk differ by extension.
       - name: Download the client packages
         uses: actions/download-artifact@v8
         with:
@@ -163,12 +141,8 @@ jobs:
           merge-multiple: true
           path: staged
 
-      # Keyed by OpenWrt release, because the format follows the release: 24.10
-      # reads an opkg Packages index, 25.12 an apk packages.adb, and a router
-      # needs the one its package manager understands.
-      #
-      # Every architecture's directory gets that architecture's client plus the
-      # two noarch packages, so one feed URL serves a router everything.
+      # One directory per OpenWrt release (24.10 opkg, 25.12 apk); each architecture gets its
+      # client plus the noarch packages.
       - name: Assemble the feed
         run: |
           mkdir -p noarch-apk noarch-ipk
@@ -199,20 +173,9 @@ jobs:
             exit 1
           }
 
-          # The key is handed to the container through the environment and
-          # written inside it, so it never lands in the workspace. As root,
-          # because the bind mount is owned by the runner and the image's own
-          # user is a different uid -- it has to write packages.adb back out.
-          #
-          # The SDK image carries apk; the action's own image is only this plus
-          # an entrypoint, so the base serves here.
-          #
-          # The umask covers this whole block, unlike the opkg step below where
-          # it is scoped to the key alone. That is safe only because the chown
-          # afterwards hands packages.adb to the runner before anything reads
-          # it. The opkg index is verified inside a container first, as a
-          # different user, which is exactly what a block-wide umask broke
-          # there -- so do not "tidy" the two into agreement.
+          # The key goes in by environment and is written inside the container. Root, because the bind
+          # mount is the runner's uid. The umask covers the whole block, unlike the opkg step: safe only
+          # because of the chown below, so do not make the two agree.
           docker run --rm --user 0:0 -e APK_PRIVATE_KEY \
             -v "$PWD:/w" -w /w ghcr.io/openwrt/sdk:${{ needs.build.outputs.apk_sdk }} \
             sh -c 'umask 077
@@ -227,9 +190,6 @@ jobs:
           sudo chown -R "$(id -u):$(id -g)" site
           find site -name packages.adb -exec ls -l {} \;
 
-      # opkg reads a plain-text Packages index and verifies Packages.sig with
-      # usign, which is a different key and a different tool from the apk side
-      # above. The 24.10 SDK is where both live.
       - name: Sign the opkg index
         env:
           IPK_PRIVATE_KEY: ${{ secrets.IPK_PRIVATE_KEY }}
@@ -242,9 +202,7 @@ jobs:
           docker run --rm --user 0:0 -e IPK_PRIVATE_KEY \
             -v "$PWD:/w" -w /w "ghcr.io/openwrt/sdk:${{ needs.build.outputs.ipk_sdk }}" \
             sh -c 'set -e
-                   # The tight umask covers the key and nothing else. Applied
-                   # to the whole block it also lands on Packages, which the
-                   # verify step below then cannot read as a different user.
+                   # The umask covers the key only: on Packages it would stop the verify step reading it.
                    ( umask 077; printf "%s\n" "$IPK_PRIVATE_KEY" > /tmp/key-build )
                    # ipkg-make-index.sh hashes through $MKHASH, which the build
                    # normally exports; unset it silently becomes `sha256`.
@@ -259,9 +217,7 @@ jobs:
           sudo chown -R "$(id -u):$(id -g)" site
           find site -name 'Packages*' -exec ls -l {} \;
 
-      # Verifying with the public key alone is the whole promise of the feed:
-      # if this passes, a router that trusts this key installs without
-      # --allow-untrusted.
+      # If this passes, a router trusting this key installs without --allow-untrusted.
       - name: Verify the index against the published public key
         run: |
           cp keys/qwdtt.pem site/qwdtt.pem
@@ -305,9 +261,10 @@ jobs:
         id: deploy
         uses: actions/deploy-pages@v5
 
+  # After the feed: --target creates the tag, so a release beside a failed feed would spend it.
   release:
     name: Publish release
-    needs: [version, build]
+    needs: [version, build, feed]
     # A dispatch republishes the feed and releases nothing, so this is the one
     # place that asks whether a release is actually being made.
     if: >-
@@ -318,8 +275,7 @@ jobs:
       contents: write
 
     steps:
-      # Needed for keys/qwdtt.pem below. A job that only downloads artifacts
-      # still starts with an empty workspace.
+      # For keys/: a job that only downloads artifacts starts with an empty workspace.
       - name: Check out
         uses: actions/checkout@v7
 
@@ -329,11 +285,8 @@ jobs:
           merge-multiple: true
           path: dist
 
-      # A release asset is named by its basename, and an apk filename carries no
-      # architecture: both client builds arrive as qwdtt-client-<version>.apk
-      # and would collide, leaving one architecture unpublished. The
-      # architecture is the first path component inside the artifact, so fold
-      # it into the name. The .ipk side already carries an arch suffix.
+      # apk names carry no architecture, so two clients would collide as release assets;
+      # fold the arch in from the path.
       - name: Name the client packages after their architecture
         run: |
           for f in dist/*/qwdtt/qwdtt-client-*.apk; do
@@ -342,10 +295,8 @@ jobs:
             mv "$f" "dist/$(basename "$f" .apk)-$arch.apk"
           done
 
-      # The trust key, shaped as an OpenWrt backup archive. Restoring it under
-      # System -> Backup is the only way to place a file in /etc/apk/keys
-      # without shell access: LuCI's package-manager Configuration modal edits
-      # the repository lists and nothing else.
+      # Shaped as a backup archive: restoring it under System -> Backup is the only way
+      # to place a key without shell access.
       - name: Build the key archives
         run: |
           mkdir -p apkroot/etc/apk/keys
@@ -353,10 +304,7 @@ jobs:
           tar -C apkroot -czf dist/qwdtt-apk-key.tar.gz etc
           tar -tzvf dist/qwdtt-apk-key.tar.gz
 
-          # opkg finds a key by its id, so the file has to be named for it. A
-          # usign public key is a 2-byte algorithm tag followed by the 8-byte
-          # id, which is why this skips two and takes eight -- it saves running
-          # usign itself just to be told the name.
+          # opkg finds a key by its id: a usign public key is a 2-byte tag, then the 8-byte id.
           keyid=$(sed -n '2p' keys/qwdtt-usign.pub | base64 -d |
                   od -An -tx1 -j2 -N8 | tr -d ' \n')
           echo "usign key id: $keyid"
@@ -371,7 +319,7 @@ jobs:
           TAG: ${{ needs.version.outputs.tag }}
         run: |
           assets=$(find dist -type f \
-            \( -name '*.tar.gz' -o -name '*.ipk' -o -name '*.apk' \) | sort)
+            \( -name '*-key.tar.gz' -o -name '*.ipk' -o -name '*.apk' \) | sort)
           echo "$assets"
 
           # Fail loudly rather than let the upload silently drop one of a pair:
@@ -384,20 +332,13 @@ jobs:
             exit 1
           fi
 
-          # Re-running a release run rebuilds everything and arrives here with
-          # the release already published, where a plain create fails with
-          # "Release.tag_name already exists" and leaves the run red after the
-          # feed has already been republished. Uploading over it instead makes
-          # the whole workflow repeatable, which is what a re-run is for.
+          # A re-run arrives with the release already published; upload over it so a re-run works.
           if gh release view "${TAG}" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "release exists; replacing its assets"
             gh release upload "${TAG}" $assets \
               --repo "$GITHUB_REPOSITORY" --clobber
           else
-            # --target creates the tag at this commit when it does not exist,
-            # which is now the normal path: the merge starts the run and the
-            # tag is made here, after the build and the feed have passed. On
-            # the tag-push path the tag already resolves and this is ignored.
+            # --target creates the tag here when it does not exist yet, which is the merge path.
             gh release create "${TAG}" $assets \
               --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
@@ -405,9 +346,7 @@ jobs:
               --notes "Indexing assets..."
           fi
 
-      # Built after the upload, from the names GitHub actually stored: it
-      # rewrites characters it will not serve, so luci-i18n's `~` becomes `.`
-      # and a table built from the staging directory links to a 404.
+      # From the names GitHub stored: it rewrites characters, so luci-i18n's ~ becomes ".".
       - name: Compose the download table
         env:
           GH_TOKEN: ${{ github.token }}
@@ -418,17 +357,13 @@ jobs:
           names=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" \
                     --json assets -q '.assets[].name')
 
-          # Read the targets back off the client .ipk names rather than listing
-          # them here. A hardcoded list silently mis-sorts the moment the build
-          # matrix gains an architecture: the unknown one is classified as
-          # noarch, so it takes over an All row and the real noarch package
-          # vanishes from the table.
+          # Targets come from the client .ipk names rather than a list: an unknown arch would
+          # otherwise be sorted as noarch.
           arches=$(echo "$names" |
                    sed -n 's/^qwdtt-client_[^_]*_\(.*\)\.ipk$/\1/p' | sort -u)
           test -n "$arches" || { echo "no client packages found in the release"; exit 1; }
           echo "targets: $(echo $arches | tr '\n' ' ')"
 
-          # A file belongs to a target if its name contains that pkgarch.
           link() {  # ext target -> <a> for its file, or N/A
             for f in $(echo "$names" | grep "\.$1$" | sort); do
               a=All
@@ -446,10 +381,15 @@ jobs:
             printf 'N/A'
           }
 
+          # GitHub's own notes pick the previous release; only their changelog line is kept.
+          changelog=$(gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
+                        -f tag_name="$TAG" --jq .body | grep '^\*\*Full Changelog\*\*' || true)
+
           {
+            [ -z "$changelog" ] || printf '%s\n\n' "$changelog"
             echo "### Packages"
             echo
-            echo "Install **qwdtt-client** package for your target and packages from the last **All** row."
+            echo "Install \`qwdtt-client\` package for your target and packages from the last **All** row."
             echo
             echo "<table>"
             echo "<tr><th>Target</th><th>IPK</th><th>APK (OpenWrt 25.12+)</th></tr>"

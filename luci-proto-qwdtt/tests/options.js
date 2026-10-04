@@ -1,10 +1,9 @@
 // Exercises the routing options in protocol/qwdtt.js away from a browser.
 //
-// These two flags write ordinary sections of /etc/config/network that the
+// The LAN-route flag writes an ordinary section of /etc/config/network that the
 // operator is then invited to edit on Network -> Routing, and every way that
-// can go wrong is silent: a rule re-broadened on the next save still routes,
-// a kill switch removed along with the rule still leaves the tunnel up, and
-// both read back as if nothing happened. The interface editor cannot be opened
+// can go wrong is silent: a rule re-broadened on the next save still routes and
+// reads back as if nothing happened. The interface editor cannot be opened
 // here, so LuCI's wrapper is reproduced instead - it wraps each resource in a
 // function and injects its requires - and the uci store is read back after.
 //
@@ -58,13 +57,22 @@ function load(uci, formvalues) {
 	const opts = {};
 	const section = {
 		section: 'qwdtt0',
-		tab() {},
+		// As form.js does it: a second declaration of the same tab throws,
+		// which is what the interface editor hit when one qWDTT interface was
+		// opened after another. A no-op stub here could not have caught it.
+		tabs: null,
+		tab(name, title) {
+			if (this.tabs && this.tabs[name])
+				throw 'Tab already declared';
+			this.tabs = this.tabs || {};
+			this.tabs[name] = { name, title };
+		},
 		formvalue(sid, name) { return formvalues[name]; },
 		taboption(tab, type, name, title, desc) {
 			const o = {
 				enabled: '1', disabled: '0', section,
-				optName: name, title, description: desc,
-				value() {}, depends() {}
+				optName: name, title, description: desc, labels: {},
+				value(key, label) { this.labels[key] = label; }, depends() {}
 			};
 			opts[name] = o;
 			return o;
@@ -109,17 +117,22 @@ function check(what, got, want) {
 
 	check('a new tunnel is seeded with a table',
 		uci.get('network', 'qwdtt0', 'ip4table'), '51820');
-	check('a new tunnel starts with a kill switch',
-		uci.get('network', 'qwdtt0_killswitch', 'type'), 'unreachable');
-	check('and the kill switch flag reads back on',
-		opts._killswitch.cfgvalue('qwdtt0'), '1');
 	check('a new tunnel starts carrying the lan',
 		[ uci.get('network', 'qwdtt0_rule', 'in'),
 		  uci.get('network', 'qwdtt0_rule', 'lookup') ], [ 'lan', '51820' ]);
 	check('and the lan flag reads back on',
 		opts._lanroute.cfgvalue('qwdtt0'), '1');
-	check('both point at the table the tunnel was seeded with',
-		uci.get('network', 'qwdtt0_killswitch', 'table'), '51820');
+	check('the rule points at the table the tunnel was seeded with',
+		uci.get('network', 'qwdtt0_rule', 'lookup'), '51820');
+
+	// It writes a section of its own rather than a value, so it goes last
+	// rather than among the plain settings.
+	check('the lan-route flag comes last on the tab',
+		Object.keys(opts).slice(-1), [ '_lanroute' ]);
+
+	check('the two pacing limits are adjacent, download first',
+		Object.keys(opts).filter(k => k == 'rate_up' || k == 'rate_down'),
+		[ 'rate_down', 'rate_up' ]);
 }
 
 // --- deleting a tunnel takes its routing with it ---------------------------
@@ -129,13 +142,10 @@ function check(what, got, want) {
 	uci.set('network', 'qwdtt0', 'proto', 'qwdtt');
 	load(uci, { defaultroute: '1', ip4table: null });
 
-	// Left behind, the kill switch is the only route remaining in a table the
-	// rule still looks up, so everything the rule matches is refused - by a
-	// tunnel that is no longer there to explain it.
+	// Left behind, the rule looks up a table this tunnel no longer fills.
 	lastProto.deleteConfiguration.call({ sid: 'qwdtt0' });
-	check('deleting a tunnel removes its rule and its kill switch',
-		[ uci.get('network', 'qwdtt0_rule'),
-		  uci.get('network', 'qwdtt0_killswitch') ], [ null, null ]);
+	check('deleting a tunnel removes its rule',
+		uci.get('network', 'qwdtt0_rule'), null);
 }
 
 // --- the rule's priority stays clear of netifd's ---------------------------
@@ -187,7 +197,7 @@ function check(what, got, want) {
 		uci.get('network', 'qwdtt0_rule', 'lookup'), '51999');
 }
 
-// --- the two flags are independent -----------------------------------------
+// --- turning the rule off removes its section -------------------------------
 {
 	const uci = makeUci();
 	uci.add('network', 'interface', 'qwdtt0');
@@ -195,18 +205,11 @@ function check(what, got, want) {
 	const opts = load(uci, { defaultroute: '1', ip4table: '51820' });
 
 	opts._lanroute.write('qwdtt0', '1');
-	opts._killswitch.write('qwdtt0', '1');
+	check('turning it on writes the rule',
+		uci.get('network', 'qwdtt0_rule', 'in'), 'lan');
 	opts._lanroute.write('qwdtt0', '0');
-	check('turning the rule off leaves the kill switch',
-		[ uci.get('network', 'qwdtt0_rule'),
-		  uci.get('network', 'qwdtt0_killswitch', 'type') ],
-		[ null, 'unreachable' ]);
-
-	opts._lanroute.write('qwdtt0', '1');
-	opts._killswitch.write('qwdtt0', '0');
-	check('and dropping the kill switch leaves the rule',
-		[ uci.get('network', 'qwdtt0_killswitch'),
-		  uci.get('network', 'qwdtt0_rule', 'in') ], [ null, 'lan' ]);
+	check('turning it off removes the rule',
+		uci.get('network', 'qwdtt0_rule'), null);
 }
 
 // --- the guard against the one broken combination --------------------------
@@ -284,6 +287,54 @@ function check(what, got, want) {
 	}
 }
 
+// --- the editor may render the same section twice -------------------------
+// Open one qWDTT interface, close it, open another: the editor comes back
+// with a section that already carries the tab, and form.js throws on a
+// repeat declaration. What the operator saw was "Tab already declared" and
+// an editor that would not open.
+{
+	const uci = makeUci();
+	uci.add('network', 'interface', 'qwdtt0');
+	uci.set('network', 'qwdtt0', 'proto', 'qwdtt');
+
+	const opts = {};
+	const section = {
+		section: 'qwdtt0',
+		tabs: null,
+		tab(name, title) {
+			if (this.tabs && this.tabs[name])
+				throw 'Tab already declared';
+			this.tabs = this.tabs || {};
+			this.tabs[name] = { name, title };
+		},
+		formvalue() { return null; },
+		taboption(tab, type, name, title, desc) {
+			const o = { enabled: '1', disabled: '0', section, optName: name,
+			            title, description: desc, value() {}, depends() {} };
+			opts[name] = o;
+			return o;
+		}
+	};
+	const form = {};
+	[ 'Flag', 'Value', 'ListValue', 'DynamicList' ].forEach(k => {
+		form[k] = function() {};
+		form[k].prototype = { write() {}, renderWidget() { return {}; } };
+	});
+	const network = { registerErrorCode() {}, registerProtocol(name, proto) { return proto; } };
+	const fn = new Function('form', 'network', 'uci', 'ui', 'L', '_', 'E',
+		fs.readFileSync(SRC, 'utf8'));
+	const proto = fn(form, network, uci, {}, { resource: () => '' }, s => s, () => ({}));
+
+	let err = null;
+	try {
+		proto.renderFormOptions.call({ sid: 'qwdtt0' }, section);
+		proto.renderFormOptions.call({ sid: 'qwdtt0' }, section);
+	} catch (e) {
+		err = String(e);
+	}
+	check('rendering the same section twice does not throw', err, null);
+}
+
 // --- nothing here opens a dialog -------------------------------------------
 // The interface editor is itself a LuCI modal and there is only one: showModal
 // calls dom.content on it, so a second dialog replaces the editor rather than
@@ -331,13 +382,123 @@ function check(what, got, want) {
 			continue;
 		}
 		seen++;
-		const want = `Default: ${value}.`;
+		// A dropdown names its default by the label it shows.
+		const want = `Default: ${o.labels[value] ?? value}.`;
 		if (!String(o.description || '').startsWith(want)) {
 			console.log(`${name}: hint does not open with ${JSON.stringify(want)}\n  ${o.description}`);
 			failed = 1;
 		}
 	}
 	check('every handler fallback was checked', seen > 0, true);
+}
+
+// --- the ports that depend on the mode, in three places --------------------
+// The peer port has no single default any more: the handler picks one by mode,
+// the protocol page names both in the hint for the field, and the status page
+// fills one in so the Peer column says where the tunnel actually goes. Three
+// copies, and nothing at runtime would notice them disagreeing - a tunnel sent
+// at a port nobody mentioned looks exactly like a server that is not there.
+{
+	const handler = fs.readFileSync('qwdtt-client/files/qwdtt.sh', 'utf8');
+	const PAGES = [
+		'luci-proto-qwdtt/htdocs/luci-static/resources/protocol/qwdtt.js',
+		'luci-proto-qwdtt/htdocs/luci-static/resources/view/qwdtt/status.js'
+	];
+
+	const ports = {};
+	let m;
+	const re = /^QWDTT_PEER_PORT_([a-z]+)=(\d+)$/gm;
+	while ((m = re.exec(handler)) !== null)
+		ports[m[1]] = m[2];
+	check('the handler names a peer port for each mode',
+		Object.keys(ports).sort(), [ 'rawtun', 'wireguard' ]);
+
+	// The one default the handler still writes as a plain fallback, and the
+	// address the status page tells the operator to point WireGuard at.
+	const relay = (handler.match(/\$\{listen_port:-(\d+)\}/) || [])[1];
+	check('the handler has a default relay port', relay != null, true);
+
+	PAGES.forEach(path => {
+		const src = fs.readFileSync(path, 'utf8');
+		const decl = (src.match(/var PEER_PORT = \{([^}]*)\}/) || [])[1] || '';
+		const seen = {};
+		const one = /([a-z]+):\s*'(\d+)'/g;
+		let d;
+
+		while ((d = one.exec(decl)) !== null)
+			seen[d[1]] = d[2];
+
+		check(`${path} agrees with the handler on the peer ports`, seen, ports);
+		check(`${path} agrees with the handler on the relay port`,
+			(src.match(/var RELAY_PORT = '(\d+)'/) || [])[1], relay);
+	});
+}
+
+// --- opening a WireGuard tunnel does not give it routing ------------------
+// A wireguard-mode tunnel made over uci has no ip4table, because the handler
+// asks for one only in rawtun mode. Seeding on sight staged a table and a lan
+// rule for it; the flag depends on rawtun so it sits inactive and does not
+// take the rule away, and the mode write handler only runs when the mode
+// changes. Saving then pointed the lan at a table that routes nowhere.
+{
+	const uci = makeUci();
+	uci.add('network', 'interface', 'qwdtt0');
+	uci.set('network', 'qwdtt0', 'proto', 'qwdtt');
+	uci.set('network', 'qwdtt0', 'mode', 'wireguard');
+
+	load(uci, { defaultroute: '1', ip4table: null });
+
+	check('opening a wireguard tunnel seeds no rule',
+		uci.get('network', 'qwdtt0_rule'), null);
+	// The table is seeded even so: inert for a tunnel that routes nothing,
+	// and wanted the moment the mode changes, where nothing else would add
+	// it in time - an ip4table widget that renders empty is parsed away.
+	check('and seeds the table anyway, for the mode it may become',
+		uci.get('network', 'qwdtt0', 'ip4table') != null, true);
+}
+
+// And switching it back finds the table already there, which is the point of
+// seeding it: the handler refuses a rawtun tunnel without one.
+{
+	const uci = makeUci();
+	uci.add('network', 'interface', 'qwdtt0');
+	uci.set('network', 'qwdtt0', 'proto', 'qwdtt');
+	uci.set('network', 'qwdtt0', 'mode', 'wireguard');
+
+	const opts = load(uci, { defaultroute: '1', ip4table: null });
+	opts.mode.write('qwdtt0', 'rawtun');
+
+	check('switching a wireguard tunnel to rawtun leaves it with a table',
+		uci.get('network', 'qwdtt0', 'ip4table') != null, true);
+}
+
+// --- a WireGuard tunnel writes no routing ----------------------------------
+// It adds no route of its own, so a rule steering the lan at its table would
+// find nothing there. The flag goes inactive on the tab, and an inactive
+// option is not removed unless it has rmempty, which it clears; the mode field
+// takes it instead.
+{
+	const uci = makeUci();
+	uci.add('network', 'interface', 'qwdtt0');
+	uci.set('network', 'qwdtt0', 'proto', 'qwdtt');
+
+	// created as a RAW-IP tunnel, so the rule exists to begin with
+	const opts = load(uci, { defaultroute: '1', ip4table: null });
+	check('the tunnel starts with routing to lose',
+		uci.get('network', 'qwdtt0_rule', 'in'), 'lan');
+
+	opts.mode.write('qwdtt0', 'wireguard');
+	check('switching to wireguard takes the rule with it',
+		uci.get('network', 'qwdtt0_rule'), null);
+
+	// and the other way round leaves what is there alone
+	const back = makeUci();
+	back.add('network', 'interface', 'qwdtt0');
+	back.set('network', 'qwdtt0', 'proto', 'qwdtt');
+	const again = load(back, { defaultroute: '1', ip4table: null });
+	again.mode.write('qwdtt0', 'rawtun');
+	check('staying on rawtun keeps it',
+		back.get('network', 'qwdtt0_rule', 'in'), 'lan');
 }
 
 // --- the messages the interface page shows ---------------------------------

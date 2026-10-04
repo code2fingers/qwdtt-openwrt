@@ -2,9 +2,8 @@
 # Exercises the /etc/config/qwdtt -> /etc/config/network conversion away from a
 # router. It runs once, on a router that already carries traffic, and there is
 # no second chance at it: a tunnel that comes back without its routing rule
-# carries nothing, and one that comes back without its unreachable route
-# releases everything to the WAN the moment it drops. So the whole resulting
-# config is asserted, key by key, against a uci stubbed out over a text file.
+# carries nothing. So the whole resulting config is asserted, key by key,
+# against a uci stubbed out over a text file.
 #
 # Run from the repository root: sh qwdtt-client/tests/migrate.sh
 set -u
@@ -119,12 +118,6 @@ network.qwdtt0.peer_port=56003
 network.qwdtt0.proto=qwdtt
 network.qwdtt0.workers=18
 network.qwdtt0=interface
-network.qwdtt0_killswitch.interface=loopback
-network.qwdtt0_killswitch.metric=1000000
-network.qwdtt0_killswitch.table=51820
-network.qwdtt0_killswitch.target=0.0.0.0/0
-network.qwdtt0_killswitch.type=unreachable
-network.qwdtt0_killswitch=route
 network.qwdtt0_rule.in=lan
 network.qwdtt0_rule.lookup=51820
 network.qwdtt0_rule.priority=9999
@@ -138,17 +131,7 @@ network.work.password=p2
 network.work.peer_host=vpn2.example
 network.work.proto=qwdtt
 network.work.turn_tcp=1
-network.work=interface
-network.work_killswitch.interface=loopback
-network.work_killswitch.metric=1000000
-network.work_killswitch.table=51821
-network.work_killswitch.target=0.0.0.0/0
-network.work_killswitch.type=unreachable
-network.work_killswitch=route
-network.work_rule.lookup=51821
-network.work_rule.mark=0x100/0xff00
-network.work_rule.priority=9000
-network.work_rule=rule'
+network.work=interface'
 check "the converted config" "$got" "$(printf '%s\n' "$want" | sort)"
 
 # dns is renamed because netifd already defines dns on every interface as the
@@ -158,6 +141,17 @@ if grep -q '^network\.qwdtt0\.dns=' "$NETWORK"; then
 	echo "dns was copied under its old name, which collides with netifd's own"
 	fail=1
 fi
+
+# A disabled tunnel keeps no rule. The old client added its rule only while
+# running, so a disabled one had none, and a disabled tunnel will not route
+# anyway.
+case $log in
+*'qwdtt.work is disabled'*) ;;
+*)
+	echo "a disabled tunnel was converted without saying its routing was left out:"
+	echo "$log"
+	fail=1 ;;
+esac
 
 # Nothing may be dropped quietly. lan_interface named a device where a rule
 # names a logical interface, and only the operator knows whether br-guest is
@@ -200,6 +194,49 @@ case $log in
 	echo "$log"
 	fail=1 ;;
 esac
+
+# --- the install that predates the packages ---------------------------------
+
+# It kept only `enabled` and the path of a JSON config in uci. The settings come
+# from that file, the password stays in it, and the tunnel takes the name of the
+# device it ran as rather than of the section. jshn is stubbed over key=value.
+QWDTT="qwdtt.main=qwdtt
+qwdtt.main.enabled=1
+qwdtt.main.config=$WORK/config.json"
+ARCHIVE='peer=vpn9.example:56003
+password=p9
+device_id=openwrt-router
+workers=9
+dns=yandex
+no_dtls=0
+turn_tcp=1
+tun_name=qwdtt0
+lan_interface=br-lan'
+json_init() { :; }
+json_load_file() { [ -r "$1" ]; }
+json_select() { :; }
+json_get_var() { eval "$1=\$(printf '%s\n' \"\$ARCHIVE\" | sed -n 's/^$2=//p')"; }
+json_get_values() { eval "$1='hhh iii'"; }
+printf '{}\n' > "$WORK/config.json"
+: > "$NETWORK"
+log=$(. ./qwdtt-client/files/qwdtt.migrate)
+got=$(dump)
+want="network.qwdtt0.config_file=$WORK/config.json
+network.qwdtt0.device_id=openwrt-router
+network.qwdtt0.go_dns=yandex
+network.qwdtt0.hash=hhh iii
+network.qwdtt0.ip4table=51820
+network.qwdtt0.peer_host=vpn9.example
+network.qwdtt0.peer_port=56003
+network.qwdtt0.proto=qwdtt
+network.qwdtt0.turn_tcp=1
+network.qwdtt0.workers=9
+network.qwdtt0=interface
+network.qwdtt0_rule.in=lan
+network.qwdtt0_rule.lookup=51820
+network.qwdtt0_rule.priority=9999
+network.qwdtt0_rule=rule"
+check "the archive's JSON config, converted" "$got" "$(printf '%s\n' "$want" | sort)"
 
 [ "$fail" = 0 ] || exit 1
 echo "qwdtt.migrate: ok"

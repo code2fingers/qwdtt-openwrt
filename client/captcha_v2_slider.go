@@ -30,7 +30,6 @@ type sliderPuzzleV2 struct {
 type sliderGuessV2 struct {
 	Index         int
 	Swaps         []int
-	Score         int64
 	ScoreRGB      int64
 	ScoreLuma     int64
 	ScoreText     float64
@@ -335,7 +334,6 @@ func rankSliderGuessesV2(img image.Image, gridSize int, swaps []int) ([]sliderGu
 		} else {
 			g.ConsensusRank += candidateCount
 		}
-		g.Score = int64(g.ConsensusRank)
 	}
 
 	sort.SliceStable(guesses, func(i, j int) bool {

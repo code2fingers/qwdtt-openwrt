@@ -10,25 +10,30 @@ import (
 	"time"
 )
 
+// Every packet in both directions goes through this pool, which exists so
+// that the packet path allocates nothing. Pointers to arrays rather than
+// slices: a slice put into the pool is boxed into an interface, and boxing a
+// 24-byte header is an allocation - one per packet, measured at 24 B/op on
+// the very path the pool is meant to keep clean. A pointer fits in the
+// interface word and costs nothing.
+const pktBufSize = 2048
+
 var pktPool = sync.Pool{
-	New: func() interface{} {
-		return make([]byte, 2048)
-	},
+	New: func() any { return new([pktBufSize]byte) },
 }
 
 func getPktBuf(size int) []byte {
-	b := pktPool.Get().([]byte)
-	if cap(b) < size {
-		b = make([]byte, size)
+	if size > pktBufSize {
+		return make([]byte, size)
 	}
-	return b[:size]
+	return pktPool.Get().(*[pktBufSize]byte)[:size]
 }
 
 func putPktBuf(b []byte) {
-	if cap(b) < 2048 {
+	if cap(b) < pktBufSize {
 		return
 	}
-	pktPool.Put(b[:cap(b)])
+	pktPool.Put((*[pktBufSize]byte)(b[:pktBufSize]))
 }
 
 const (
@@ -130,7 +135,7 @@ func NewDispatcher(ctx context.Context, localConn net.PacketConn, stats *Stats) 
 	d := &Dispatcher{
 		localConn: localConn,
 		ready:     ready,
-		ReturnCh:  make(chan []byte, returnChBuf),
+		ReturnCh:  make(chan []byte, returnChBufFor()),
 		ctx:       dctx,
 		cancel:    dcancel,
 		stats:     stats,
@@ -151,7 +156,7 @@ func NewDispatcherPendingTUN(ctx context.Context, stats *Stats) *Dispatcher {
 	dctx, dcancel := context.WithCancel(ctx)
 	d := &Dispatcher{
 		ready:    make(chan struct{}),
-		ReturnCh: make(chan []byte, returnChBuf),
+		ReturnCh: make(chan []byte, returnChBufFor()),
 		ctx:      dctx,
 		cancel:   dcancel,
 		stats:    stats,
@@ -172,9 +177,8 @@ func (d *Dispatcher) AttachTUN(f *os.File) {
 	// The sessions that registered while there was nothing to attach them to
 	// have been reported as carrying nothing, which they were. Now they are.
 	d.mu.Lock()
-	count := len(d.workers)
+	d.reportWorkers(len(d.workers))
 	d.mu.Unlock()
-	d.reportWorkers(count)
 }
 
 // Whether there is anything to carry traffic on yet. In rawtun mode the
@@ -227,9 +231,20 @@ func (d *Dispatcher) Register(w *WorkerSlot) {
 	d.mu.Lock()
 	d.workers = append(d.workers, w)
 	count := len(d.workers)
+	// Under the lock, so the rate the limiter ends up with is the one that
+	// goes with the last count published. Two registrations racing outside it
+	// can publish in either order, and the loser leaves the tunnel paced for
+	// fewer sessions than it has until the next change. Safe to hold: the
+	// limiters take only their own lock and never come back here.
+	setTunnelSessions(count)
+	// Under the lock as well, so two registrations that race publish their
+	// counts in the order they took them. Written after releasing it, the
+	// earlier count could land last and leave the status page one behind until
+	// something changed again. The write is a small tmpfs file and these
+	// happen only as sessions come and go, not per packet.
+	d.reportWorkers(count)
 	d.mu.Unlock()
 	log.Printf("[DISP] Worker #%d registered (total: %d)", w.ID, count)
-	d.reportWorkers(count)
 }
 
 func (d *Dispatcher) Unregister(slot *WorkerSlot) {
@@ -246,9 +261,10 @@ func (d *Dispatcher) Unregister(slot *WorkerSlot) {
 		d.rrIndex = d.rrIndex % remaining
 	}
 	d.rrCount = 0
+	setTunnelSessions(remaining)
+	d.reportWorkers(remaining)
 	d.mu.Unlock()
 	log.Printf("[DISP] Worker #%d disconnected (remaining: %d)", slot.ID, remaining)
-	d.reportWorkers(remaining)
 }
 
 // readLoop reads packets (from the local WG loopback or the TUN) and spreads
@@ -461,6 +477,21 @@ func (d *Dispatcher) writeLoop() {
 		case <-d.ctx.Done():
 			return
 		case pkt := <-d.ReturnCh:
+			// The one place every packet from every relay leaves by, so the
+			// one place the download direction can be paced. Shaped rather
+			// than limited, and the difference matters: the packet is here
+			// because the relay already carried it, and nothing done now
+			// un-sends it. Holding it makes the flows inside the tunnel slow
+			// down - their self-clocking stretches and ReturnCh tail-drops
+			// the excess - so less is asked for and less crosses the relay a
+			// round trip later. Traffic that does not answer congestion, UDP
+			// above all, is only thrown away after VK has already counted it.
+			if tunnelRecvLimiter != nil {
+				if err := tunnelRecvLimiter.WaitN(d.ctx, len(pkt)); err != nil {
+					putPktBuf(pkt)
+					return
+				}
+			}
 			if d.tunFile != nil {
 				if atomic.CompareAndSwapUint32(&d.firstPktDown, 0, 1) {
 					log.Printf("[DISP] [DEBUG] Sending the FIRST packet back into the TUN (%d bytes)", len(pkt))

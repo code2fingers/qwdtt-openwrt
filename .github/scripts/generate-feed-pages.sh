@@ -1,13 +1,6 @@
 #!/bin/sh
-# Turn the assembled feed into a browsable Jekyll site.
-#
-#   generate-feed-pages.sh <site-dir> <base-url> [target-map]
-#
-# The packages stay where the feed job put them, at
-# <site>/releases/<release>/<pkgarch>/. What this adds is a tree keyed the way
-# a user thinks -- release, target, subtarget -- whose leaves point at the
-# right pkgarch feed. Targets get no copy of the packages: five architectures
-# serve 38 targets, so copying would multiply the site for nothing.
+# Browsable pages over the feed: release, target and subtarget pages that point at the
+# pkgarch feeds rather than copying the packages, which five architectures share across 38 targets.
 
 # The file is printf templates full of Markdown backticks, which shellcheck
 # reads as command substitution it thinks should have been double-quoted.

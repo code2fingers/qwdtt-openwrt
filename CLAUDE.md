@@ -29,6 +29,18 @@ was measured rather than chosen, a literal that looks translatable but is
 load-bearing. Keep it to a line or two. If the reason needs a paragraph, it is
 not a comment.
 
+## The README
+
+The README and the other docs in the `docs/` folder are the maintainer's to
+shape. Users and developers read them at a router, and a steady drip of
+added detail, restructured sections and rewritten lines costs them more than
+it gives. Do not edit them as a side effect of other work.
+
+When a change you make leaves the README wrong, or you notice it is already
+inconsistent or misleading, say so and propose the edit - in your message or
+as a diff to review - then stop. Apply it only when the maintainer asks for
+it. What goes in, and how it is arranged, is their decision.
+
 ## Commits
 
 Scope first, then a short subject: `client:`, `ci:`, `docs:`, `comments:`,
@@ -45,8 +57,10 @@ diff before it lands. `.claude/settings.json` denies `gh pr merge` to stop it
 happening by reflex, but the rule matters more than the guard: there is more
 than one way to merge a pull request.
 
-Release bumps are no exception. The `PKG_VERSION` commit goes through a PR
-like anything else, and the tag is pushed only once that has been merged.
+Release bumps are no exception: the `PKG_VERSION` commit goes through a PR
+like anything else. Do not push the tag afterwards. `release.yml` creates it
+with the release, from the merge commit, and a hand-pushed tag starts a
+second release of the same version.
 
 ## Reference only what the reader can see
 

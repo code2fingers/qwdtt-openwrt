@@ -172,29 +172,23 @@ function parseHashes(entries) {
    router's WAN down that way. The field for it belongs to the interface editor,
    so all this file can do is choose the number - see renderFormOptions.
 
-   What decides which traffic enters the table is an ordinary `config rule`,
-   and what stops traffic leaking to the WAN while the tunnel is down is an
-   ordinary unreachable route in the same table. Neither is a qWDTT option --
-   both are written here because every value they need is known here, and
-   both are then editable on Network -> Routing like any other.
-
-   One flag each, rather than one flag writing both: they answer different
-   questions, and a single control could neither drop the kill switch on its
-   own nor be turned off without taking a kill switch somebody wanted with
-   it. */
-
-/* The kill switch only has to lose to the tunnel's own default route, and it
-   is the only other route in the table, so the number just has to be larger
-   than any metric that route could carry. netifd gives an interface's routes
-   the interface's own metric, and at 4096 a tunnel set above that lost to its
-   own kill switch: the unreachable default won, the LAN was refused, and the
-   tunnel stayed up throughout. Confirmed on a router - metric 5000 produced
-   "default dev qwdtt0 ... metric 5000" in the tunnel's table. A million is
-   past anything an interface is given. */
-var KILL_METRIC = '1000000';
+   What decides which traffic enters the table is an ordinary `config rule`.
+   It is not a qWDTT option -- it is written here because every value it needs
+   is known here, and it is then editable on Network -> Routing like any
+   other. */
 
 function tableOf(section_id) {
 	return uci.get('network', section_id, 'ip4table') || '';
+}
+
+/* ---- the two shapes a tunnel comes in ------------------------------------
+   Kept in step with QWDTT_PEER_PORT_* and proto_qwdtt_setup in the protocol
+   handler, which is what actually applies them. */
+var PEER_PORT = { rawtun: '56003', wireguard: '56000' };
+var RELAY_PORT = '9000';
+
+function modeOf(section_id) {
+	return uci.get('network', section_id, 'mode') || 'rawtun';
 }
 
 /* The lowest table nothing else has claimed. 51820 is where the client's own
@@ -257,27 +251,6 @@ function addLanRule(section_id, table) {
 	uci.set('network', rule, 'lookup', table);
 }
 
-/* Attached to loopback so that it outlives the tunnel: a route attached to the
-   tunnel itself would disappear exactly when it is needed. The metric is
-   beaten by the tunnel's own default, so it only decides what happens once
-   that one is gone. */
-function addKillswitch(section_id, table) {
-	var kill = section_id + '_killswitch';
-
-	if (uci.get('network', kill) == null) {
-		uci.add('network', 'route', kill);
-		uci.set('network', kill, 'interface', 'loopback');
-		uci.set('network', kill, 'target', '0.0.0.0/0');
-		uci.set('network', kill, 'type', 'unreachable');
-	}
-	uci.set('network', kill, 'table', table);
-	/* Re-asserted rather than written once, unlike the rest. It is not a knob:
-	   the only thing it decides is that this route loses to the tunnel's, and
-	   a kill switch written when the number was lower is one an interface
-	   metric can still outrank. */
-	uci.set('network', kill, 'metric', KILL_METRIC);
-}
-
 /* Only what is there. Removing a section that does not exist still marks the
    map as changed, which would show an unsaved change on every visit to a
    tunnel that never had it. */
@@ -296,10 +269,16 @@ function dropSection(name) {
 [
 	[ 'MISSING_PEER_HOST',      _('No server address is set') ],
 	[ 'MISSING_HASH',           _('No VK call hash is set') ],
-	[ 'NAME_TOO_LONG',          _('Interface name longer than 15 characters (the TUN device limit)') ],
+	[ 'MISSING_PASSWORD',       _('No connection password is set') ],
+	[ 'NAME_TOO_LONG',          _('Interface name longer than 15 characters (the device name limit)') ],
 	[ 'MISSING_IP4TABLE',       _('No routing table (ip4table) set; the tunnel needs its own') ],
 	[ 'MISSING_DEVICE_ID',      _('No device ID is set') ],
+	[ 'INVALID_MODE',           _('Mode must be either rawtun or wireguard') ],
+	[ 'NO_RELAY_DEVICE',        _('The placeholder device for this tunnel could not be created') ],
 	[ 'DUPLICATE_DEVICE_ID',    _('Another qWDTT interface already uses this device ID') ],
+	[ 'DUPLICATE_LISTEN_PORT',  _('Another qWDTT tunnel already uses this local endpoint port') ],
+	[ 'UNREADABLE_CONFIG_FILE', _('The client config file set here cannot be read') ],
+	[ 'QWDTT_LISTEN_FAILED',    _('The relay could not open its local endpoint') ],
 	[ 'QWDTT_WRONG_PASSWORD',   _('The server rejected the connection password') ],
 	[ 'QWDTT_PASSWORD_EXPIRED', _('The connection password has expired') ],
 	[ 'QWDTT_DEVICE_MISMATCH',  _('Password is bound to another device ID: use a separate one') ],
@@ -352,14 +331,11 @@ return network.registerProtocol('qwdtt', {
 		return (network.getIfnameOf(ifname) == this.getIfname());
 	},
 
-	/* Deleting the interface has to take these two with it. They are separate
-	   sections, so nothing else removes them, and the kill switch left behind
-	   is not inert: it is the only route left in a table the rule still looks
-	   up, so whatever the rule matches is refused outright - by a tunnel that
-	   no longer exists and has nothing left to explain it. */
+	/* Deleting the interface has to take the rule with it. It is a separate
+	   section, so nothing else removes it, and a rule left behind looks up a
+	   table this tunnel no longer fills. */
 	deleteConfiguration: function() {
 		dropSection(this.sid + '_rule');
-		dropSection(this.sid + '_killswitch');
 	},
 
 	renderFormOptions: function(s) {
@@ -368,11 +344,22 @@ return network.registerProtocol('qwdtt', {
 		/* Everything this protocol adds goes on one tab of its own. The
 		   interface editor's own tabs are declared before this runs, so it
 		   lands last, after DHCP Server. */
-		s.tab('qwdtt', _('qWDTT'));
+		/* Only once. The interface editor can call this a second time against
+		   a section that already carries the tab - open one qWDTT interface,
+		   close it, open another - and form.js answers a repeat declaration
+		   by throwing "Tab already declared", which reaches the operator as
+		   an unspecified error and an editor that will not open. The stock
+		   wireguard protocol wraps the same call in a bare try; asking
+		   whether the tab is there says what is going on and still lets a
+		   real error through. */
+		if (!s.tabs || !s.tabs['qwdtt'])
+			s.tab('qwdtt', _('qWDTT'));
 
 		/* The section name is the TUN device the client creates, so it has to
 		   be a name the kernel takes. Nothing else in the editor says so, and
-		   the protocol handler's refusal arrives only after Save & Apply. */
+		   the protocol handler's refusal arrives only after Save & Apply. In
+		   WireGuard mode it is the placeholder device instead, and the kernel
+		   takes fifteen characters for that too. */
 		if (s.section.length > 15)
 			s.description = _('This interface name is longer than 15 characters, so the tunnel cannot come up: the name is also the TUN device, and the kernel takes 15.');
 
@@ -387,14 +374,36 @@ return network.registerProtocol('qwdtt', {
 			var seeded = freeTable();
 
 			uci.set('network', s.section, 'ip4table', seeded);
-			/* The same visit is the only one at which a tunnel is known to have
-			   no routing of its own yet, so it is where both routing flags get
-			   to start on. Carrying the LAN is what a tunnel is added for, and a
-			   tunnel that releases it to the WAN the moment it drops is a
-			   surprise rather than a convenience. Either is one click off. */
-			addLanRule(s.section, seeded);
-			addKillswitch(s.section, seeded);
+			/* This visit is the only one at which a tunnel is known to have no
+			   routing yet, so it is where the LAN rule starts on - one click
+			   off. Not for a wireguard-mode tunnel, which carries nothing: a
+			   rule at its table would send the LAN at a table that routes
+			   nowhere. The table is still seeded, being inert there and wanted
+			   the moment it becomes rawtun. */
+			if (uci.get('network', s.section, 'mode') != 'wireguard')
+				addLanRule(s.section, seeded);
 		}
+
+		/* First, because it decides what the rest of the tab means: in
+		   WireGuard mode this interface has no device, no address and no
+		   routes, so the routing flags below go away with it. */
+		o = s.taboption('qwdtt', form.ListValue, 'mode', _('Mode'),
+			_('Default: %s.').format('RAW'));
+		o.value('rawtun', 'RAW');
+		o.value('wireguard', 'WireGuard');
+		o.default = 'rawtun';
+
+		/* The rule below is declared with depends('mode', 'rawtun'), and going
+		   inactive is not enough to take it away: an inactive option is only
+		   removed when it has rmempty, which it clears on purpose. So the switch
+		   does it, here, where the rule is known to have stopped describing
+		   anything - it points at a table this tunnel no longer fills. Declared
+		   before it, so its own write cannot put it back. */
+		o.write = function(section_id, value) {
+			if (value == 'wireguard')
+				dropSection(section_id + '_rule');
+			return form.ListValue.prototype.write.apply(this, arguments);
+		};
 
 		/* host(1) rather than host(): the protocol handler builds the client's
 		   -peer as host:port with no brackets, so an IPv6 literal would not
@@ -404,13 +413,22 @@ return network.registerProtocol('qwdtt', {
 		o.datatype = 'host(1)';
 		o.rmempty = false;
 
+		/* No placeholder, unlike every other field here: the default is not one
+		   value but one per mode, and a box showing the other mode's port would
+		   be worse than a box showing none. */
 		o = s.taboption('qwdtt', form.Value, 'peer_port', _('Peer port'),
-			withDefault('56003', _('UDP port of the server RAW listener.')));
+			_('Server UDP port. Default: %s for rawtun, %s for wireguard.')
+				.format(PEER_PORT.rawtun, PEER_PORT.wireguard));
 		o.datatype = 'port';
-		o.placeholder = '56003';
+
+		o = s.taboption('qwdtt', form.Value, 'listen_port', _('Local endpoint port'),
+			withDefault(RELAY_PORT, _('UDP port on 127.0.0.1 that the WireGuard peer points at. One per tunnel.')));
+		o.datatype = 'port';
+		o.placeholder = RELAY_PORT;
+		o.depends('mode', 'wireguard');
 
 		o = s.taboption('qwdtt', form.Value, 'device_id', _('Device ID'),
-			_('Identifies this tunnel to the server, which knows it by this and nothing else. Two tunnels that share one are a single device to it and it disconnects them in turn, so each needs its own.'));
+			_('Must be unique per tunnel. If shared, the server disconnects those tunnels in turn.'));
 		o.rmempty = false;
 
 		/* ---- routing ------------------------------------------------------ */
@@ -421,7 +439,7 @@ return network.registerProtocol('qwdtt', {
 		o.rmempty = false;
 
 		o = s.taboption('qwdtt', form.DynamicList, 'hash', _('Hashes'),
-			_('Added one at a time with the button below, which takes either the %d-character hash or a whole VK call link and reduces the link to the hash it denotes. At least one is required -- the client selects a hash modulo the list length, so an empty list cannot work.').format(HASH_LEN));
+			_('A %d-character hash or a VK call link. At least one is required.').format(HASH_LEN));
 
 		/* DynamicList passes `optional: this.optional || this.rmempty` to its
 		   widget, so clearing rmempty is what routes an empty list through
@@ -446,110 +464,26 @@ return network.registerProtocol('qwdtt', {
 				parseHashes(list));
 		};
 
-		/* The stock widget for what is already in the list, and a field of our
-		   own to put things into it. Delegating to the parent keeps the
-		   standard remove and reorder controls, and the field goes in a wrapper
-		   rather than inside the dynlist node, whose children are its items.
-		   Wrapping is safe for getUIElement, which resolves the widget by
-		   element id. */
+		o.placeholder = _('Hash or VK call link');
+
+		/* The stock widget, but a pasted link goes into the list as the hash it
+		   denotes rather than waiting for the save to be reduced. */
 		o.renderWidget = function(section_id, option_index, cfgvalue) {
-			var self = this;
 			var node = form.DynamicList.prototype.renderWidget.apply(this, arguments);
+			var widget = L.dom.findClassInstance(node);
+			var addItem = widget.addItem;
 
-			/* ui.DynamicList ends with a row of its own for adding items, and
-			   this field is not free-form: a link has to be reduced to the hash
-			   it denotes before it can go in the list, and anything that is
-			   neither has to be refused. That row is hidden rather than taken
-			   out, because addItem() finds it with querySelector to insert
-			   before and dereferences the result without checking - removing it
-			   throws on the next setValue(). */
-			var addRow = node.querySelector('.add-item');
-			if (addRow)
-				addRow.style.display = 'none';
-
-			/* An id because a form field without one is flagged by every
-			   accessibility check, and its own rather than the widget's:
-			   getUIElement resolves the list by "widget." + cbid, and a second
-			   element answering to that would be found instead of the list.
-
-			   No width of its own either. The theme gives every input 210px,
-			   which is what the fields above this one are, and anything set
-			   here would leave this one the odd width on the tab. */
-			var field = E('input', {
-				'id': 'qwdtt.%s.addhash'.format(section_id),
-				'type': 'text',
-				'class': 'cbi-input-text',
-				'aria-label': _('Hash or VK call link'),
-				'placeholder': _('Hash or VK call link')
-			});
-
-			var problem = E('div', {
-				'class': 'cbi-value-description',
-				'style': 'display:none'
-			});
-
-			function complain(text) {
-				problem.textContent = text;
-				problem.style.display = '';
-				field.classList.add('cbi-input-invalid');
-			}
-
-			function accept() {
-				problem.style.display = 'none';
-				field.classList.remove('cbi-input-invalid');
-			}
-
-			/* Staged, not saved: what is added has to join what the user is
-			   looking at, including edits not yet written. */
-			function add() {
-				var el = self.getUIElement(section_id);
-				var hash = normalizeVKJoinHash(field.value);
-				var trouble = hashProblem(hash);
-				var list = el ? el.getValue() : null;
-
-				if (trouble)
-					return complain(trouble);
-
-				list = (Array.isArray(list) ? list : []).filter(function(h) {
-					return h != null && h !== '';
-				});
-				if (list.indexOf(hash) !== -1)
-					return complain(_('This hash is already in the list.'));
-
-				list.push(hash);
-				if (el)
-					el.setValue(list);
-				field.value = '';
-				accept();
-			}
-
-			field.addEventListener('input', accept);
-
-			/* Inline rather than a flex row: both are inline-block already, so
-			   they line up beside each other on their own, and the input keeps
-			   the width the theme gave it instead of being stretched to fill. */
-			return E('div', {}, [
-				node,
-				E('div', { 'style': 'margin-top:.5em' }, [
-					field,
-					' ',
-					E('button', {
-						'class': 'cbi-button cbi-button-add',
-						'click': function(ev) { ev.preventDefault(); add(); }
-					}, [ _('Add hash') ])
-				]),
-				problem
-			]);
+			widget.addItem = function(dl, value, text, flash) {
+				return addItem.call(this, dl, normalizeVKJoinHash(value), text, flash);
+			};
+			return node;
 		};
 
 		o = s.taboption('qwdtt', form.Value, 'workers', _('Workers'),
 			withDefault(String(WORKERS_PER_GROUP),
-				_('Parallel sessions, started in groups of %d. One VK call sustains three groups before its relay quota starts refusing, so the ceiling is %d per hash and up to %d hashes count towards it: %d, %d, %d, %d. With a VK account it is %d in all, which is about what one account is given.')
-					.format(WORKERS_PER_GROUP, WORKERS_PER_GROUP * GROUPS_PER_HASH,
-						MAX_HASHES,
-						workerCeiling(1, false), workerCeiling(2, false),
-						workerCeiling(3, false), workerCeiling(4, false),
-						ACCOUNT_MAX_WORKERS)));
+				_('Usually a multiple of %d: %d, %d or %d per hash.')
+					.format(WORKERS_PER_GROUP, WORKERS_PER_GROUP,
+						WORKERS_PER_GROUP * 2, WORKERS_PER_GROUP * GROUPS_PER_HASH)));
 		o.datatype = 'uinteger';
 		o.default = String(WORKERS_PER_GROUP);
 
@@ -597,10 +531,78 @@ return network.registerProtocol('qwdtt', {
 			return true;
 		};
 
+		/* Paced per session rather than per relay or in total, because the
+		   session is what VK allocates and meters: several sessions share one
+		   relay address, so a per-address limit would describe nothing VK
+		   sees. */
+		o = s.taboption('qwdtt', form.Value, 'rate_down', _('Download speed limit (per session)'),
+			withDefault(_('none'), _('Kbit/s each session may receive from its VK relay.')));
+		o.datatype = 'uinteger';
+		o.placeholder = _('none');
+
+		o = s.taboption('qwdtt', form.Value, 'rate_up', _('Upload speed limit (per session)'),
+			withDefault(_('none'), _('Kbit/s each session may send to its VK relay.')));
+		o.datatype = 'uinteger';
+		o.placeholder = _('none');
+
+		/* Every default below is the one the protocol handler falls back to,
+		   so a new tunnel opens showing what it will actually run with instead
+		   of a row of empty fields. LuCI writes nothing for a field still equal
+		   to its default, which is what keeps the section free of options the
+		   handler would have supplied anyway. */
+
+		o = s.taboption('qwdtt', form.Value, 'go_dns', _('DNS for VK'),
+			withDefault('yandex', _('Resolver for VK: yandex, cloudflare, google, their doh- variants, custom:IP, doh:URL.')));
+		o.default = 'yandex';
+
+		o = s.taboption('qwdtt', form.ListValue, 'obfs', _('Obfuscation'),
+			withDefault(_('audio'), _('What the tunnel is disguised as inside the VK call.')));
+		o.value('audio', _('audio'));
+		o.value('video', _('video'));
+		o.default = 'audio';
+
+		o = s.taboption('qwdtt', form.ListValue, 'captcha_mode', _('Captcha mode'),
+			withDefault('auto', _('How a VK captcha is answered. auto tries the built-in solver and falls back.')));
+		o.value('auto', 'auto');
+		o.value('rjs', 'rjs');
+		o.value('wv', 'wv');
+		o.default = 'auto';
+
+		/* vk_auth and vk_creds_file are not offered here. Account mode wants a
+		   supervising process to hand it fresh TURN credentials over stdin
+		   every few minutes - the phone app is one, a router is not - and the
+		   credentials a file can carry are dropped nine minutes after the
+		   client reads them, after which every worker waits five minutes for an
+		   answer that is not coming. The protocol handler still passes both, so
+		   a router that has something to feed it can set them with uci. */
+
+		o = s.taboption('qwdtt', form.ListValue, 'vk_anon_path', _('Anonymous path'),
+			withDefault('vkcalls', _('Which VK endpoint an anonymous join goes through.')));
+		o.value('vkcalls', 'vkcalls');
+		o.value('legacy', 'legacy');
+		o.default = 'vkcalls';
+
+		/* The port matters as much as the flag and is easy to miss: -listen-direct
+		   is a listener of its own, not the same one without DTLS, so a tunnel
+		   left on the default port meets a listener that will not answer it and
+		   reports the timeout as a password problem. */
+		o = s.taboption('qwdtt', form.Flag, 'no_dtls', _('Disable DTLS'),
+			withDefault(_('off'), _('Direct mode without DTLS. Needs a -listen-direct server; set Peer port to its port.')));
+
+		o = s.taboption('qwdtt', form.Flag, 'turn_tcp', _('TURN over TCP'),
+			withDefault(_('off'), _('Reach the TURN relay over TCP. Helps where UDP is throttled, e.g. Rostelecom.')));
+
+		/* Last on the tab: it is the only setting here that writes a section of
+		   its own rather than a value. RAW-IP only, and not merely as tidiness:
+		   a WireGuard-mode interface adds no route of its own, so a rule
+		   steering the LAN at its table would find nothing there. Going inactive
+		   is what removes the rule, which is also how switching an existing
+		   tunnel over takes its old routing with it. */
 		o = s.taboption('qwdtt', form.Flag, '_lanroute',
 			_('Route LAN client traffic through this tunnel'),
-			withDefault(_('on'), _('Writes an ordinary routing rule sending traffic from the lan interface to the routing table of this tunnel. Edit it afterwards on Network -> Routing - to send one client or one destination instead of the whole LAN, narrow it there and it stays narrowed; only the table it looks up is kept in step from here.')));
+			withDefault(_('on'), _('Adds a rule routing the LAN into this tunnel; narrow it on Network -> Routing.')));
 		o.rmempty = false;
+		o.depends('mode', 'rawtun');
 		/* So that a table changed under Advanced Settings is carried into the
 		   rule, which is otherwise left pointing at the old one. */
 		o.forcewrite = true;
@@ -640,73 +642,5 @@ return network.registerProtocol('qwdtt', {
 		o.remove = function(section_id) {
 			dropSection(section_id + '_rule');
 		};
-
-		o = s.taboption('qwdtt', form.Flag, '_killswitch',
-			_('Do not allow traffic if the tunnel is down (kill switch).'),
-			withDefault(_('on'), _('Writes an unreachable default route into the routing table of this tunnel, so traffic sent there is refused rather than released to the WAN whenever the tunnel is not up. Independent of the rule above: it covers whatever looks up that table, including a rule written by hand.')));
-		o.rmempty = false;
-		o.forcewrite = true;
-
-		o.cfgvalue = function(section_id) {
-			return uci.get('network', section_id + '_killswitch') != null
-				? this.enabled : this.disabled;
-		};
-
-		o.write = function(section_id, value) {
-			if (value != this.enabled)
-				return dropSection(section_id + '_killswitch');
-
-			addKillswitch(section_id,
-				this.section.formvalue(section_id, 'ip4table') ||
-				tableOf(section_id) || freeTable());
-		};
-
-		o.remove = function(section_id) {
-			dropSection(section_id + '_killswitch');
-		};
-
-		/* Every default below is the one the protocol handler falls back to,
-		   so a new tunnel opens showing what it will actually run with instead
-		   of a row of empty fields. LuCI writes nothing for a field still equal
-		   to its default, which is what keeps the section free of options the
-		   handler would have supplied anyway. */
-
-		o = s.taboption('qwdtt', form.Value, 'go_dns', _('DNS for VK'),
-			withDefault('yandex', _('Resolver the client uses to reach VK, which is not the resolver the tunnel hands out: yandex, cloudflare or google, their doh- variants, or custom:IP and doh:URL.')));
-		o.default = 'yandex';
-
-		o = s.taboption('qwdtt', form.ListValue, 'obfs', _('Obfuscation'),
-			withDefault(_('audio'), _('What the tunnel is disguised as inside the VK call.')));
-		o.value('audio', _('audio'));
-		o.value('video', _('video'));
-		o.default = 'audio';
-
-		o = s.taboption('qwdtt', form.ListValue, 'captcha_mode', _('Captcha mode'),
-			withDefault('auto', _('How a VK captcha is answered. auto tries the built-in solver and falls back.')));
-		o.value('auto', 'auto');
-		o.value('rjs', 'rjs');
-		o.value('wv', 'wv');
-		o.default = 'auto';
-
-		/* vk_auth and vk_creds_file are not offered here. Account mode wants a
-		   supervising process to hand it fresh TURN credentials over stdin
-		   every few minutes - the phone app is one, a router is not - and the
-		   credentials a file can carry are dropped nine minutes after the
-		   client reads them, after which every worker waits five minutes for an
-		   answer that is not coming. The protocol handler still passes both, so
-		   a router that has something to feed it can set them with uci. */
-
-		o = s.taboption('qwdtt', form.ListValue, 'vk_anon_path', _('Anonymous path'),
-			withDefault('vkcalls', _('Which VK endpoint an anonymous join goes through.')));
-		o.value('vkcalls', 'vkcalls');
-		o.value('legacy', 'legacy');
-		o.default = 'vkcalls';
-
-		o = s.taboption('qwdtt', form.Flag, 'no_dtls', _('Disable DTLS'),
-			withDefault(_('off'), _('Direct mode: RTP-obfs AEAD over TURN without DTLS. The server has to be started with -listen-direct, or the tunnel will not come up.')));
-
-		o = s.taboption('qwdtt', form.Flag, 'turn_tcp', _('TURN over TCP'),
-			withDefault(_('off'), _('Reach the TURN relay over TCP instead of UDP. Works around UDP throttling on some networks, for example Rostelecom.')));
-
 	}
 });

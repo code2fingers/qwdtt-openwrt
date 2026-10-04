@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -34,10 +35,11 @@ import (
 type tunnelProbe struct {
 	conn     *net.IPConn
 	id       uint16
+	server   net.IP
 	answered atomic.Bool
 }
 
-func newTunnelProbe(ctx context.Context, device string) (*tunnelProbe, error) {
+func newTunnelProbe(ctx context.Context, device string, server net.IP) (*tunnelProbe, error) {
 	source, err := deviceIPv4(device)
 	if err != nil {
 		return nil, err
@@ -61,7 +63,7 @@ func newTunnelProbe(ctx context.Context, device string) (*tunnelProbe, error) {
 		return nil, err
 	}
 
-	p := &tunnelProbe{conn: pc.(*net.IPConn), id: uint16(os.Getpid())}
+	p := &tunnelProbe{conn: pc.(*net.IPConn), id: uint16(os.Getpid()), server: server}
 	go p.drain(ctx)
 	return p, nil
 }
@@ -108,8 +110,17 @@ func (p *tunnelProbe) drain(ctx context.Context) {
 			return
 		}
 		_ = p.conn.SetReadDeadline(time.Now().Add(time.Second))
-		n, err := p.conn.Read(buf)
+		n, src, err := p.conn.ReadFromIP(buf)
+		if errors.Is(err, net.ErrClosed) {
+			return
+		}
 		if err != nil {
+			continue
+		}
+		// The raw socket is handed every ICMP packet on the device, and the id
+		// is only the pid, so another host or pinger could carry a matching
+		// one. Only the server's own reply proves this tunnel's path.
+		if p.server != nil && !src.IP.Equal(p.server) {
 			continue
 		}
 		msg := icmpPayload(buf[:n])

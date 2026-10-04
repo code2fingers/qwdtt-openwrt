@@ -20,6 +20,9 @@ msgstr "недопустимый символ \"%s\""
 msgid "This interface name is longer than 15 characters, so the tunnel cannot come up: the name is also the TUN device, and the kernel takes 15."
 msgstr "Имя этого интерфейса длиннее 15 символов, поэтому туннель не поднимется: имя - это еще и имя TUN-устройства, а ядро принимает 15 символов."
 
+msgid "Mode"
+msgstr "Режим"
+
 msgid "Peer host"
 msgstr "Адрес сервера"
 
@@ -38,8 +41,14 @@ msgstr "выкл"
 msgid "on"
 msgstr "вкл"
 
-msgid "UDP port of the server RAW listener."
-msgstr "UDP-порт RAW-слушателя на сервере."
+msgid "Server UDP port. Default: %s for rawtun, %s for wireguard."
+msgstr "UDP-порт сервера. По умолчанию: %s для rawtun, %s для wireguard."
+
+msgid "Local endpoint port"
+msgstr "Порт локальной точки подключения"
+
+msgid "UDP port on 127.0.0.1 that the WireGuard peer points at. One per tunnel."
+msgstr "UDP-порт на 127.0.0.1 для узла WireGuard. У каждого туннеля свой."
 
 msgid "Password"
 msgstr "Пароль"
@@ -50,44 +59,32 @@ msgstr "Пароль подключения, заданный на сервер�
 msgid "Hashes"
 msgstr "Хеши"
 
-msgid "Added one at a time with the button below, which takes either the %d-character hash or a whole VK call link and reduces the link to the hash it denotes. At least one is required -- the client selects a hash modulo the list length, so an empty list cannot work."
-msgstr "Добавляются по одному кнопкой ниже: она принимает либо хеш из %d символов, либо целиком ссылку на звонок VK и приводит ссылку к хешу. Нужен хотя бы один: клиент выбирает хеш по остатку от деления на длину списка, поэтому пустой список работать не может."
+msgid "A %d-character hash or a VK call link. At least one is required."
+msgstr "Хеш из %d символов или ссылка на звонок VK. Нужен хотя бы один."
 
 msgid "Hash or VK call link"
 msgstr "Хеш или ссылка на звонок VK"
 
-msgid "Add hash"
-msgstr "Добавить хеш"
-
-msgid "This hash is already in the list."
-msgstr "Этот хеш уже есть в списке."
-
 msgid "Device ID"
 msgstr "Идентификатор устройства"
 
-msgid "Identifies this tunnel to the server, which knows it by this and nothing else. Two tunnels that share one are a single device to it and it disconnects them in turn, so each needs its own."
-msgstr "Идентифицирует этот туннель на сервере, который знает его только по этому значению. Два туннеля с одинаковым идентификатором для него - одно устройство, и он отключает их по очереди, поэтому каждому нужен свой."
+msgid "Must be unique per tunnel. If shared, the server disconnects those tunnels in turn."
+msgstr "Должен быть уникальным для туннеля. Если он общий, сервер отключает эти туннели по очереди."
 
 msgid "Route LAN client traffic through this tunnel"
 msgstr "Маршрутизировать трафик LAN-клиентов в этот туннель"
 
-msgid "Writes an ordinary routing rule sending traffic from the lan interface to the routing table of this tunnel. Edit it afterwards on Network -> Routing - to send one client or one destination instead of the whole LAN, narrow it there and it stays narrowed; only the table it looks up is kept in step from here."
-msgstr "Записывает обычное правило маршрутизации, отправляющее трафик интерфейса lan в таблицу маршрутизации этого туннеля. Правило можно отредактировать на странице Сеть -> Маршрутизация: чтобы направить в туннель одного клиента или одно назначение вместо всей локальной сети, сузьте его там - таким оно и останется; отсюда обновляется только номер таблицы."
+msgid "Adds a rule routing the LAN into this tunnel; narrow it on Network -> Routing."
+msgstr "Правило, направляющее LAN в туннель; сузить можно в Сеть -> Маршрутизация."
 
 msgid "This needs \"Use default gateway\" under Advanced Settings: without it the tunnel adds no default route for the rule to find, and the LAN would reach nothing."
-msgstr "Для этого нужен включённый параметр \"Использовать шлюз по умолчанию\" в дополнительных настройках: без него туннель не добавляет маршрут по умолчанию, и правилу нечего будет найти, а локальная сеть останется без доступа."
-
-msgid "Do not allow traffic if the tunnel is down (kill switch)."
-msgstr "Не пропускать трафик, если туннель не работает (килл-свитч)"
-
-msgid "Writes an unreachable default route into the routing table of this tunnel, so traffic sent there is refused rather than released to the WAN whenever the tunnel is not up. Independent of the rule above: it covers whatever looks up that table, including a rule written by hand."
-msgstr "Записывает в таблицу маршрутизации этого туннеля недостижимый маршрут по умолчанию, чтобы направленный туда трафик отбрасывался, а не уходил в WAN, пока туннель не поднят. Не зависит от правила выше: действует для всего, что обращается к этой таблице, включая правило, написанное вручную."
+msgstr "Для этого нужен включенный параметр \"Использовать шлюз по умолчанию\" в дополнительных настройках: без него туннель не добавляет маршрут по умолчанию, и правилу нечего будет найти, а локальная сеть останется без доступа."
 
 msgid "Workers"
 msgstr "Воркеры"
 
-msgid "Parallel sessions, started in groups of %d. One VK call sustains three groups before its relay quota starts refusing, so the ceiling is %d per hash and up to %d hashes count towards it: %d, %d, %d, %d. With a VK account it is %d in all, which is about what one account is given."
-msgstr "Параллельные сессии, запускаются группами по %d. Один звонок VK выдерживает три группы, после чего его квота на relay начинает отказывать, поэтому предел - %d на хеш, и учитывается до %d хешей: %d, %d, %d, %d. С аккаунтом VK - %d всего, примерно столько дается одному аккаунту."
+msgid "Usually a multiple of %d: %d, %d or %d per hash."
+msgstr "Обычно кратно %d: %d, %d или %d на хеш."
 
 msgid "At least one worker is needed."
 msgstr "Нужен хотя бы один воркер."
@@ -104,8 +101,8 @@ msgstr "Хешей %d - это %d воркеров. Добавьте еще од
 msgid "DNS for VK"
 msgstr "DNS для VK"
 
-msgid "Resolver the client uses to reach VK, which is not the resolver the tunnel hands out: yandex, cloudflare or google, their doh- variants, or custom:IP and doh:URL."
-msgstr "Резолвер, через который клиент находит VK - это не тот резолвер, который раздает туннель: yandex, cloudflare или google, их doh-варианты, либо custom:IP и doh:URL."
+msgid "Resolver for VK: yandex, cloudflare, google, their doh- variants, custom:IP, doh:URL."
+msgstr "DNS для VK: yandex, cloudflare, google, их doh-варианты, custom:IP, doh:URL."
 
 msgid "Obfuscation"
 msgstr "Обфускация"
@@ -123,7 +120,7 @@ msgid "Captcha mode"
 msgstr "Режим капчи"
 
 msgid "How a VK captcha is answered. auto tries the built-in solver and falls back."
-msgstr "Как отвечать на капчу VK. auto сначала пробует встроенный решатель, затем запасные пути."
+msgstr "Как отвечать на капчу VK. auto пробует встроенный решатель, затем запасные."
 
 msgid "Anonymous path"
 msgstr "Анонимный путь"
@@ -134,14 +131,14 @@ msgstr "Через какую точку входа VK проходит анон
 msgid "Disable DTLS"
 msgstr "Отключить DTLS"
 
-msgid "Direct mode: RTP-obfs AEAD over TURN without DTLS. The server has to be started with -listen-direct, or the tunnel will not come up."
-msgstr "Прямой режим: RTP-obfs AEAD поверх TURN без DTLS. Сервер должен быть запущен с -listen-direct, иначе туннель не поднимется."
+msgid "Direct mode without DTLS. Needs a -listen-direct server; set Peer port to its port."
+msgstr "Прямой режим без DTLS. Нужен сервер с -listen-direct и его порт в \"Порт сервера\"."
 
 msgid "TURN over TCP"
 msgstr "TURN через TCP"
 
-msgid "Reach the TURN relay over TCP instead of UDP. Works around UDP throttling on some networks, for example Rostelecom."
-msgstr "Подключаться к TURN по TCP вместо UDP. Обходит ограничение UDP в некоторых сетях, например у Ростелекома."
+msgid "Reach the TURN relay over TCP. Helps where UDP is throttled, e.g. Rostelecom."
+msgstr "Подключаться к TURN по TCP. Помогает, где режут UDP, например у Ростелекома."
 
 msgid "No server address is set"
 msgstr "Не задан адрес сервера"
@@ -149,14 +146,32 @@ msgstr "Не задан адрес сервера"
 msgid "No VK call hash is set"
 msgstr "Не задан ни один хеш звонка VK"
 
-msgid "Interface name longer than 15 characters (the TUN device limit)"
-msgstr "Имя интерфейса длиннее 15 символов (предел TUN-устройства)"
+msgid "No connection password is set"
+msgstr "Не задан пароль подключения"
+
+msgid "Interface name longer than 15 characters (the device name limit)"
+msgstr "Имя интерфейса длиннее 15 символов (предел имени устройства)"
+
+msgid "Mode must be either rawtun or wireguard"
+msgstr "Режим должен быть rawtun или wireguard"
+
+msgid "The placeholder device for this tunnel could not be created"
+msgstr "Не удалось создать устройство-заглушку для этого туннеля"
 
 msgid "No routing table (ip4table) set; the tunnel needs its own"
 msgstr "Не задана таблица маршрутизации (ip4table): туннелю нужна своя"
 
 msgid "No device ID is set"
 msgstr "Не задан идентификатор устройства"
+
+msgid "Another qWDTT tunnel already uses this local endpoint port"
+msgstr "Этот локальный порт уже занят другим туннелем qWDTT"
+
+msgid "The client config file set here cannot be read"
+msgstr "Файл настроек клиента, указанный здесь, не читается"
+
+msgid "The relay could not open its local endpoint"
+msgstr "Ретранслятор не смог открыть локальную точку подключения"
 
 msgid "Another qWDTT interface already uses this device ID"
 msgstr "Этот идентификатор устройства уже занят другим интерфейсом qWDTT"
@@ -178,3 +193,18 @@ msgstr "Звонок VK, которому принадлежит этот хеш
 
 msgid "The server did not answer: check the address, port and password"
 msgstr "Сервер не ответил: проверьте адрес, порт и пароль"
+
+msgid "Upload speed limit (per session)"
+msgstr "Ограничение скорости отдачи (на сессию)"
+
+msgid "Download speed limit (per session)"
+msgstr "Ограничение скорости приема (на сессию)"
+
+msgid "Kbit/s each session may send to its VK relay."
+msgstr "Сколько Кбит/с каждая сессия может отдавать своему ретранслятору VK."
+
+msgid "Kbit/s each session may receive from its VK relay."
+msgstr "Сколько Кбит/с каждая сессия может принимать от своего ретранслятора VK."
+
+msgid "none"
+msgstr "нет"

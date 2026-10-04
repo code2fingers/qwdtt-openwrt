@@ -34,22 +34,77 @@ function tunnels() {
 	}).then(function(res) {
 		var runtime = res[1] || {};
 
-		return res[0].filter(function(net) {
+		var all = res[0];
+
+		return all.filter(function(net) {
 			return net.getProtocol() == 'qwdtt';
 		}).map(function(net) {
 			net.qwdttRuntime = runtime[net.getName()] || {};
+			/* The WireGuard interface a wireguard-mode tunnel is carried by,
+			   kept here because it is where that tunnel's address and its byte
+			   counters actually live. Taken from the list already fetched
+			   rather than asked for again. */
+			net.qwdttCarrier = null;
+			if (modeOf(net) == 'wireguard') {
+				var name = checkDeviceOf(net);
+				if (name)
+					net.qwdttCarrier = all.filter(function(n) {
+						return n.getName() == name;
+					})[0] || null;
+			}
 			return net;
 		});
 	});
 }
 
+/* Kept in step with QWDTT_PEER_PORT_* in the protocol handler, which is what
+   applies them, and with PEER_PORT in protocol/qwdtt.js, which offers them. */
+var PEER_PORT = { rawtun: '56003', wireguard: '56000' };
+var RELAY_PORT = '9000';
+
+function modeOf(net) {
+	return uci.get('network', net.getName(), 'mode') || 'rawtun';
+}
+
+/* The port is filled in when the tunnel leaves it unset, because the column is
+   there to say where this tunnel goes and the handler's fallback is part of
+   that - and it is not one number but one per mode. */
 function peerOf(net) {
 	var host = net._get('peer_host');
-	var port = net._get('peer_port');
+	var port = net._get('peer_port') || PEER_PORT[modeOf(net)];
 
 	if (!host)
 		return '-';
-	return port ? host + ':' + port : host;
+	return host + ':' + port;
+}
+
+/* What a WireGuard-mode tunnel exists to provide: the address a WireGuard
+   interface is pointed at as its peer. Nothing else on the router says what it
+   ended up being, and the tunnel carries no traffic of its own to show
+   instead. */
+function endpointOf(net) {
+	if (modeOf(net) != 'wireguard')
+		return null;
+	return '127.0.0.1:%s'.format(
+		uci.get('network', net.getName(), 'listen_port') || RELAY_PORT);
+}
+
+/* The address the tunnel answers on. A RAW-IP tunnel holds it itself; a
+   wireguard-mode one never will - the placeholder its interface is reported up
+   on carries nothing - so the address is the one the server issued to the
+   WireGuard interface above it, which is what the far end actually sees. */
+function addressOf(net) {
+	if (modeOf(net) != 'wireguard')
+		return (net.getIPAddrs() || [])[0] || null;
+
+	var carrier = checkDeviceOf(net);
+	if (!carrier)
+		return null;
+
+	var addrs = uci.get('network', carrier, 'addresses');
+	if (Array.isArray(addrs))
+		addrs = addrs[0];
+	return addrs || null;
 }
 
 /* What the server knows this tunnel as. Two tunnels sharing one are a single
@@ -124,7 +179,7 @@ function captchasOf(net) {
    of nothing arriving the client sends an echo through the tunnel to the
    server and the answer lands here like any other traffic, so on a tunnel
    that is merely unused this now sits under a minute. Climbing past that
-   means the tunnel is not answering, and the client gives it up at two
+   means the tunnel is not answering, and the client gives it up at five
    minutes and has netifd rebuild it - so a reading much above that is the
    page having caught it mid-rebuild. */
 function idleOf(net) {
@@ -148,11 +203,23 @@ function since(now, base) {
    label and value pairs and drops every pair whose value is null, which is how
    the counters disappear for a tunnel that has not come up yet.
 
-   Up means the tunnel is carrying traffic, not that the client is running: the
-   client creates its device and reports an address only once the server has
-   answered, so everything before that is "connecting". */
+   For a RAW-IP tunnel, up means it is carrying traffic rather than that the
+   client is running: the client creates its device and reports an address only
+   once the server has answered, so everything before that is "connecting". A
+   WireGuard-mode one has no address to wait for and is reported up as soon as
+   it starts, so there "up" says the relay is listening and the rows below -
+   the sessions, what last arrived, the worker count beside them - are what say
+   whether anything is getting through. */
 function stateOf(net) {
-	var device = net.getL3Device() || net.getDevice();
+	/* Whichever device actually carries the traffic. For a RAW-IP tunnel that
+	   is the interface itself; for a wireguard-mode one the placeholder it is
+	   reported up on carries nothing, and the WireGuard interface above it
+	   does. Reading the placeholder would show a steady zero beside a relay
+	   that is working. */
+	var carrier = net.qwdttCarrier;
+	var device = modeOf(net) == 'rawtun'
+		? (net.getL3Device() || net.getDevice())
+		: (carrier ? (carrier.getL3Device() || carrier.getDevice()) : null);
 
 	if (!net.isUp()) {
 		/* Whatever netifd was told about why. Without this the column said
@@ -199,7 +266,8 @@ function stateOf(net) {
 		   pair is what matters: the same count on both sides is the solver
 		   keeping up, and a gap is what leaves the tunnel waiting. */
 		_('Captchas'), captchasOf(net),
-		_('IPv4'), (net.getIPAddrs() || [])[0] || null,
+		_('IPv4'), addressOf(net),
+		_('Local endpoint'), endpointOf(net),
 		_('RX'), device ? '%.2mB (%d %s)'.format(
 			since(device.getRXBytes(), base.rx_bytes),
 			since(device.getRXPackets(), base.rx_packets), _('Pkts.')) : null,
@@ -253,24 +321,87 @@ var CHECK_TARGETS = {
 	'77.88.8.8': '77.88.8.8 (Yandex)'
 };
 
+var WG_PEER = 'wireguard_';
+
+/* Which interface a tunnel is checked through. A RAW-IP one carries the
+   traffic itself, so it is its own answer. A wireguard-mode one carries none:
+   it is a relay on 127.0.0.1, and what crosses it belongs to the WireGuard
+   interface pointed at that port. Asking the relay would prove nothing - its
+   device is the placeholder netifd needs to call the interface up, with no
+   address and no routes - so the question is passed to the interface above
+   it.
+
+   Which one that is does not have to be guessed at. A WireGuard peer section
+   is typed wireguard_<interface>, so a peer whose endpoint is this tunnel's
+   own local port names the interface sitting on top of it. */
+function checkDeviceOf(net) {
+	if (modeOf(net) == 'rawtun')
+		return net.getName();
+
+	var port = uci.get('network', net.getName(), 'listen_port') || RELAY_PORT;
+	var found = null;
+
+	uci.sections('network', null, function(section) {
+		var type = section['.type'] || '';
+
+		/* A disabled peer is not configured at all, so matching one would
+		   name an interface that carries nothing and hide the real match. */
+		if (found || section.disabled == '1' || type.indexOf(WG_PEER) !== 0)
+			return;
+		if (section.endpoint_host != '127.0.0.1')
+			return;
+		if (String(section.endpoint_port || '') != String(port))
+			return;
+		found = type.substring(WG_PEER.length);
+	});
+
+	return found;
+}
+
 function checkSection(nets) {
 	if (!nets.length)
 		return E([]);
+
+	/* A wireguard-mode tunnel with nothing on it yet has nothing to ask, and
+	   it is the one case where saying so beats offering a control that cannot
+	   answer. */
+	var checkable = [];
+	nets.forEach(function(net) {
+		var device = checkDeviceOf(net);
+		if (device)
+			checkable.push({ net: net, device: device });
+	});
+
+	if (!checkable.length)
+		return E('div', { 'class': 'cbi-section' }, [
+			E('h3', {}, [ _('Check tunnel') ]),
+			E('div', { 'class': 'cbi-section-descr' }, [
+				_('A WireGuard-mode tunnel is checked through the WireGuard interface that uses it, and none is configured yet: add one whose peer endpoint is this tunnel local endpoint, and it will be offered here.')
+			])
+		]);
 
 	var picker = E('select', {
 			'id': 'qwdtt-check-iface',
 			'class': 'cbi-input-select',
 			'style': 'margin:5px 0'
 		},
-		nets.map(function(net) {
+		checkable.map(function(entry) {
+			var name = entry.net.getName();
 			/* The interface name, not the device's. The TUN device is named
 			   after the section - the handler refuses a name over fifteen
 			   characters for exactly that reason - so they are the same thing
 			   while the tunnel is up. While it is down there is no L3 device,
 			   and LuCI stands in a placeholder called qwdtt-<name>, which is
 			   what ping was being asked to use: "bad address 'qwdtt-qwdtt0'"
-			   on a tunnel somebody was trying to find out about. */
-			return E('option', { 'value': net.getName() }, [ net.getName() ]);
+			   on a tunnel somebody was trying to find out about.
+
+			   Both names are shown where they differ, because the reply then
+			   comes back through an interface the reader did not name and the
+			   figure is only worth as much as knowing what it crossed. */
+			return E('option', { 'value': entry.device }, [
+				entry.device == name ? name
+					: '%s (%s)'.format(name, entry.device)
+			]);
 		}));
 
 	/* The widget the firewall pages use for an address: the resolvers worth
@@ -332,8 +463,12 @@ function checkSection(nets) {
 			body: 'sessionid=%s&command=%s'.format(
 				encodeURIComponent(L.env.sessionid), encodeURIComponent(command))
 		}).then(function(res) {
+			/* Not a throw: that would skip straight to .catch and never reach
+			   the fs.exec fallback below, leaving the box showing only
+			   "Error: Forbidden" when the cgi-exec rule does not match.
+			   Returning lets the next step run the same ping through rpcd. */
 			if (!res.ok)
-				throw new Error(res.statusText || res.status);
+				return;
 
 			/* A browser without a readable body stream still gets the output,
 			   just all at once, which is what this replaced. */
@@ -392,10 +527,10 @@ function checkSection(nets) {
 			E('h3', {
 				'style': 'display:inline; font-size:inherit; ' +
 					'line-height:inherit; margin:0'
-			}, [ _('Check a tunnel') ])
+			}, [ _('Check tunnel') ])
 		]),
 		E('div', { 'class': 'cbi-section-descr' }, [
-			_('Pings an address through the tunnel itself rather than through the router, which is what tells a tunnel that is up and carrying nothing from one that works.')
+			_('Pings an address through the tunnel. A WireGuard-mode tunnel is pinged through the WireGuard interface that uses it.')
 		]),
 		E('table', { 'class': 'table' }, [
 			E('tr', { 'class': 'tr' }, [

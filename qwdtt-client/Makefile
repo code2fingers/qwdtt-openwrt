@@ -21,13 +21,21 @@ PKG_LICENSE:=GPL-3.0-or-later
 
 include $(INCLUDE_DIR)/package.mk
 
+# kmod-wireguard and wireguard-tools are for the tunnel's wireguard mode, and
+# nothing in this package calls either: in that mode the client is a relay on
+# a local UDP port, and what carries the traffic is a separate WireGuard
+# interface the operator points at it. Depended on rather than left to be
+# installed by hand because the mode does nothing at all without one, and the
+# missing piece is on the other interface, where a router that has never had
+# WireGuard gives no hint that this is what is wrong. wireguard-tools is what
+# ships the netifd protocol for it, not just wg(8).
 define Package/qwdtt-client
   SECTION:=net
   CATEGORY:=Network
   SUBMENU:=VPN
   TITLE:=qWDTT tunnel client
   URL:=https://github.com/code2fingers/qwdtt-openwrt
-  DEPENDS:=+ca-bundle +kmod-tun +ip-full
+  DEPENDS:=+ca-bundle +kmod-tun +ip-full +kmod-wireguard +wireguard-tools
 endef
 
 define Package/qwdtt-client/description
@@ -61,6 +69,7 @@ define Package/qwdtt-client/install
 	$(INSTALL_DIR) $(1)/lib/netifd/proto
 	$(INSTALL_BIN) ./files/qwdtt.sh $(1)/lib/netifd/proto/qwdtt.sh
 	$(INSTALL_BIN) ./files/qwdtt-up.sh $(1)/lib/netifd/qwdtt-up.sh
+	$(INSTALL_BIN) ./files/qwdtt-relay-up.sh $(1)/lib/netifd/qwdtt-relay-up.sh
 	$(INSTALL_BIN) ./files/qwdtt-error.sh $(1)/lib/netifd/qwdtt-error.sh
 	$(INSTALL_DIR) $(1)/etc/uci-defaults
 	# Before the firewall one, so the zone's network list sees the interfaces
@@ -79,6 +88,8 @@ endef
 define Package/qwdtt-client/prerm
 #!/bin/sh
 [ -n "$${IPKG_INSTROOT}" ] && exit 0
+# opkg runs prerm and postrm on an upgrade as well, with PKG_UPGRADE=1.
+[ "$${PKG_UPGRADE}" = 1 ] && exit 0
 
 for tunnel in $$(uci -q show network | \
 	sed -n "s/^network\.\([^.=]*\)\.proto='qwdtt'$$/\1/p"); do
@@ -104,6 +115,7 @@ endef
 define Package/qwdtt-client/postrm
 #!/bin/sh
 [ -n "$${IPKG_INSTROOT}" ] && exit 0
+[ "$${PKG_UPGRADE}" = 1 ] && exit 0
 
 for section in $$(uci -q show firewall | \
 	sed -n "s/^firewall\.\([^.=]*_snat\)\.src='qwdtt'$$/\1/p"); do
@@ -115,26 +127,6 @@ uci commit firewall
 # restart, not reload: a reload rewrites the rules but leaves the departed
 # zone's own chains in the live ruleset, empty and unreferenced.
 [ ! -x /etc/init.d/firewall ] || /etc/init.d/firewall restart >/dev/null 2>&1
-
-# The kill switch is the one leftover that does harm rather than merely sitting
-# there. It is an unreachable default in the tunnel's own table, and with the
-# tunnel gone that table holds nothing else, so the rule steering the LAN into
-# it refuses everything - a router that loses its internet on uninstall, and
-# again on every boot after, with no qwdtt left to explain it. The rule is kept:
-# a rule whose table has no matching route falls through to the next one. So is
-# the interface, which is where the credentials are.
-#
-# Found by its shape rather than by walking the qwdtt interfaces, because one
-# whose interface has already been deleted belongs to no interface at all and
-# was the case the walk missed.
-for kill in $$(uci -q show network | \
-	sed -n "s/^network\.\([^.=]*_killswitch\)=route$$/\1/p"); do
-	[ "$$(uci -q get "network.$$kill.type")" = unreachable ] || continue
-	[ "$$(uci -q get "network.$$kill.interface")" = loopback ] || continue
-	uci -q delete "network.$$kill"
-done
-uci commit network
-[ ! -x /etc/init.d/network ] || /etc/init.d/network reload >/dev/null 2>&1
 
 exit 0
 endef

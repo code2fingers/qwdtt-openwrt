@@ -1,27 +1,12 @@
 #!/bin/sh
-# Discover the package architectures an OpenWrt release publishes and map each
-# to the Go environment that builds for it.
-#
-#   openwrt-arches.sh <release> [<release>...]
-#
-# Prints one JSON object per line: the SDK tag, the pkgarch, and the Go
-# environment the client must be cross-compiled with. Architectures Go cannot
-# target are reported on stderr and left out.
-#
-# The list comes from downloads.openwrt.org rather than a file in the tree, so
-# an architecture OpenWrt adds is built without an edit here. The mapping is
-# derived from the pkgarch name because OpenWrt encodes the CPU and its FPU
-# there and publishes nothing else machine-readable that carries it.
+# One JSON line per pkgarch the releases publish, with the Go environment that builds for it.
+# Derived from the pkgarch name: OpenWrt publishes the CPU and FPU nowhere else.
 
 set -eu
 
 [ $# -gt 0 ] || { echo "usage: openwrt-arches.sh <release>..." >&2; exit 2; }
 
-# Floating point is the part worth getting right: a hardfloat binary on a
-# softfloat target dies on the first FP instruction, while softfloat runs
-# everywhere and only costs speed. Everything below therefore picks softfloat
-# unless the pkgarch name advertises an FPU, and the client does little enough
-# arithmetic that the difference does not show.
+# Softfloat unless the name advertises an FPU: hardfloat on a softfloat target dies on the first FP instruction.
 go_env_for() { # <pkgarch> -> "GOARCH GOARM GOMIPS GOMIPS64", "." for unset
 	case "$1" in
 	x86_64)            echo "amd64 . . ." ;;

@@ -187,7 +187,11 @@ func main() {
 		}
 	}
 	deviceID := flag.String("device-id", deviceIDDefault, "unique device ID")
-	connPassword := flag.String("password", fileConfig.Password, "connection password")
+	connPassword := flag.String("password", fileConfig.Password, "connection password (or QWDTT_PASSWORD in the environment)")
+	rateDown := flag.Int("rate-down", 0, "per-session download limit from the relay, in Kbit/s (0 = unlimited)")
+	rateUp := flag.Int("rate-up", 0, "per-session upload limit to the relay, in Kbit/s (0 = unlimited)")
+	vkClientID := flag.String("vk-client-id", fileConfig.VKClientID, "VK application id for the anonymous path, replacing the built-in pair (or QWDTT_VK_CLIENT_ID)")
+	vkClientSecret := flag.String("vk-client-secret", fileConfig.VKClientSec, "VK application secret to go with -vk-client-id (or QWDTT_VK_CLIENT_SECRET)")
 	captchaModeDefault := fileConfig.CaptchaMode
 	if captchaModeDefault == "" {
 		captchaModeDefault = "auto"
@@ -282,6 +286,28 @@ func main() {
 		log.Fatalf("[CLIENT] Error reading vk-creds-file: %v", err)
 	}
 
+	// Before the hash check below, not after it: that check exits without
+	// reaching the rest of main, and it talks to VK. Left later, it asked
+	// with the built-in application pair while the tunnel it is checking for
+	// would use the replacement, so it could report an authentication
+	// failure the connection never meets.
+	if *connPassword == "" {
+		*connPassword = os.Getenv("QWDTT_PASSWORD")
+	}
+	if *vkClientID == "" {
+		*vkClientID = os.Getenv("QWDTT_VK_CLIENT_ID")
+	}
+	if *vkClientSecret == "" {
+		*vkClientSecret = os.Getenv("QWDTT_VK_CLIENT_SECRET")
+	}
+	if (*vkClientID == "") != (*vkClientSecret == "") {
+		log.Fatal("[CLIENT] -vk-client-id and -vk-client-secret go together")
+	}
+	if *vkClientID != "" {
+		vkCredentialsList = []VKCredentials{{ClientID: *vkClientID, ClientSecret: *vkClientSecret}}
+		log.Printf("[CLIENT] VK application %s, from the configuration", *vkClientID)
+	}
+
 	hashes := ParseHashes(*vkHash)
 	if *checkHashes {
 		if len(hashes) == 0 {
@@ -315,7 +341,7 @@ func main() {
 	}
 
 	if *connPassword == "" {
-		log.Fatal("[CLIENT] -password is required: the WRAP key is now derived from the connection password")
+		log.Fatal("[CLIENT] -password or QWDTT_PASSWORD is required: every packet is sealed with a key derived from it")
 	}
 
 	// Built once here: every packet is sealed with it.
@@ -346,6 +372,31 @@ func main() {
 	}
 
 	netifdWorkerSlots = *numW
+
+	// Kbit/s in, bytes/s out, and after the worker count is settled: the
+	// limiters take the count as their multiplier, and -n 0 would otherwise
+	// build none at all while normalisation went on to start nine.
+	sessionRecvLimit = *rateDown * 125
+	sessionSendLimit = *rateUp * 125
+	initTunnelLimiters(*numW)
+	// The tunnel's total, not the per-session figure, is what a transfer
+	// inside it has to live within: below about 1 Mbit/s of it the window
+	// collapses and the transfer stalls rather than slows.
+	for _, l := range []struct {
+		dir  string
+		rate int
+	}{{"Download", *rateDown}, {"Upload", *rateUp}} {
+		if l.rate <= 0 {
+			continue
+		}
+		total := l.rate * *numW
+		log.Printf("[CLIENT] %s limit: %d Kbit/s a session, %d Kbit/s over %d sessions",
+			l.dir, l.rate, total, *numW)
+		if total < 1000 {
+			log.Printf("[CLIENT] %d Kbit/s over the whole tunnel is too little for a transfer to hold a window open; it will stall rather than slow. Raise the limit or the session count.",
+				total)
+		}
+	}
 
 	tp := &TurnParams{
 		Host:         *host,
@@ -380,17 +431,31 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Listen locally (SO_REUSEADDR - a quick restart without "address already in use")
-	localConn, err := listenUDP(*listen)
-	if err != nil {
-		log.Fatalf("[CLIENT] Listener error %s: %v", *listen, err)
+	// Only the modes that relay through it: a rawtun tunnel is given no local
+	// conn at all (NewDispatcherPendingTUN below), so binding one there only
+	// claimed 127.0.0.1:9000 against every other tunnel on the router.
+	var localConn net.PacketConn
+	if activeConnMode != "rawtun" {
+		conn, listenErr := listenUDP(*listen)
+		if listenErr != nil {
+			notifyNetifdListenFailed()
+			log.Fatalf("[CLIENT] Listener error %s: %v", *listen, listenErr)
+		}
+		if uc, ok := conn.(*net.UDPConn); ok {
+			_ = uc.SetReadBuffer(socketBufSize)
+			_ = uc.SetWriteBuffer(socketBufSize)
+		}
+		localConn = conn
+		stopLocalConn := context.AfterFunc(ctx, func() { _ = localConn.Close() })
+		defer stopLocalConn()
+
+		// Up from this moment, and not before: the relay is listening.
+		if *netifd && activeConnMode == "vpn" {
+			if err := notifyNetifdRelayUp(); err != nil {
+				log.Printf("[NETIFD] reporting the relay up: %v", err)
+			}
+		}
 	}
-	if uc, ok := localConn.(*net.UDPConn); ok {
-		_ = uc.SetReadBuffer(socketBufSize)
-		_ = uc.SetWriteBuffer(socketBufSize)
-	}
-	stopLocalConn := context.AfterFunc(ctx, func() { _ = localConn.Close() })
-	defer stopLocalConn()
 
 	_, localPort, _ := net.SplitHostPort(*listen)
 	if localPort == "" {
@@ -437,7 +502,13 @@ func main() {
 	log.Println("[CLIENT] ═══════════════════════════════════════")
 
 	stats := NewStats()
-	startNetifdTrafficWatch(ctx, cancel, stats, *tunName, peer.IP)
+	// The device picks the watch's strategy, and only rawtun carries traffic on one:
+	// in vpn mode a tun_name left in the config file names a placeholder.
+	watchDevice := ""
+	if activeConnMode == "rawtun" {
+		watchDevice = *tunName
+	}
+	startNetifdTrafficWatch(ctx, cancel, stats, watchDevice, peer.IP)
 
 	var disp *Dispatcher
 	if activeConnMode == "rawtun" {
@@ -551,10 +622,11 @@ func main() {
 				fmt.Printf("║ %-44s ║\n", line)
 			}
 			fmt.Println("╚══════════════════════════════════════════════╝")
-			if err := os.WriteFile("wg-turn.conf", []byte(finalConf+"\n"), 0600); err != nil {
+			confPath := netifdWGConfPath()
+			if err := os.WriteFile(confPath, []byte(finalConf+"\n"), 0600); err != nil {
 				log.Printf("[CONFIG] Error saving: %v", err)
 			} else {
-				log.Println("[CONFIG] Saved to wg-turn.conf")
+				log.Printf("[CONFIG] Saved to %s", confPath)
 			}
 
 			if activeConnMode == "socks" {

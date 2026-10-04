@@ -99,8 +99,13 @@ func WorkerGroup(
 
 		// Asking again will not revive a dead hash, and the interface should be
 		// told rather than left waiting behind a tunnel that is not coming up.
+		// A CallUnavailableError is the same dead end - the call ended or the
+		// join link is invalid - and VK phrases it in neither string below, so
+		// it is caught by type or it retries for ever.
 		errStr := err.Error()
-		if strings.Contains(errStr, "хеш мёртв") ||
+		_, deadCall := asCallUnavailableError(err)
+		if deadCall ||
+			strings.Contains(errStr, "хеш мёртв") ||
 			strings.Contains(errStr, "FATAL_AUTH") {
 			log.Printf("[GROUP #%d] Fatal credentials error: %v", groupID, err)
 			notifyNetifdError(errStr)
@@ -273,7 +278,11 @@ func WorkerGroup(
 
 					turnAllocAttrMissing := strings.Contains(errStrLower, "turn allocate") &&
 						strings.Contains(errStrLower, "attribute not found")
-					isTurnQuota := strings.Contains(errStrLower, "quota") || strings.Contains(errStr, "486")
+					// The wrapper the session adds, which it now adds only
+					// on the relay's own code - see isQuotaRefusal. The bare
+					// 486 is not matched here either: it is three digits an
+					// ephemeral port can contain.
+					isTurnQuota := strings.Contains(errStrLower, "quota")
 					quotaRetry = isTurnQuota
 					turnCredRefreshNeeded := !isTurnQuota && (turnAllocAttrMissing ||
 						strings.Contains(errStrLower, "turn allocate auth") ||

@@ -45,18 +45,32 @@ function words(path) {
 	return length(line) ? split(line, ' ') : [];
 }
 
+// Which tunnels have left anything here, found by stripping a known suffix
+// rather than by looking for one file in particular.
+//
+// That file used to be .counters, and it is the one file a tunnel need not
+// write: it is the byte totals of the device at the moment the interface came
+// up, recorded by the up-script, and a wireguard-mode tunnel runs no
+// up-script and has no device whose totals would mean anything. Keying the
+// scan on it hid such a tunnel from the page completely - no workers, no
+// relays, no session clock, an empty answer for a tunnel that was carrying
+// traffic.
+const RUNFILE = /^(.+)\.(counters|workers|relays|captcha|traffic|wg)$/;
+
 const methods = {
 	getRuntime: {
 		call: function() {
 			const out = {};
+			const seen = {};
 
 			for (let entry in (lsdir(RUNDIR) ?? [])) {
-				const counters = match(entry, /^(.+)\.counters$/);
-				if (!counters)
-					continue;
+				const parts = match(entry, RUNFILE);
+				if (parts)
+					seen[parts[1]] = true;
+			}
 
-				const name = counters[1];
-				const base = numbers(`${RUNDIR}/${entry}`, 4);
+			for (let name in keys(seen)) {
+				const base = numbers(`${RUNDIR}/${name}.counters`, 4);
 				const workers = numbers(`${RUNDIR}/${name}.workers`, 4);
 				const relays = words(`${RUNDIR}/${name}.relays`);
 				const captcha = numbers(`${RUNDIR}/${name}.captcha`, 2);

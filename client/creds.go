@@ -21,6 +21,7 @@ import (
 	tlsclient "github.com/bogdanfinn/tls-client"
 	"github.com/bogdanfinn/tls-client/profiles"
 	"github.com/google/uuid"
+	"github.com/pion/stun/v3"
 )
 
 // ─── VK Credential Sets (2 stable app_id with rotating fallback) ───
@@ -48,7 +49,7 @@ func (e *CallUnavailableError) Error() string {
 		return "VK call is unavailable"
 	}
 	if e.Message != "" {
-		return fmt.Sprintf("VK returns error: %s (error_code=%d)", e.Message, e.Code)
+		return fmt.Sprintf("VK call is unavailable: %s (error_code=%d)", e.Message, e.Code)
 	}
 	return fmt.Sprintf("VK call is unavailable (error_code=%d)", e.Code)
 }
@@ -174,13 +175,20 @@ func cloneStringSlice(in []string) []string {
 	return out
 }
 
+// Whether a TURN failure means the credentials are bad. The relay's own answer
+// comes typed - see stunErrorCode - and is asked first; the text matches
+// behind it cover pion's own wording for the same conditions, and none of
+// them is a string a port number can contain.
 func isAuthError(err error) bool {
 	if err == nil {
 		return false
 	}
+	switch stunErrorCode(err) {
+	case stun.CodeUnauthorized, stun.CodeStaleNonce:
+		return true
+	}
 	errStr := err.Error()
-	return strings.Contains(errStr, "401") ||
-		strings.Contains(errStr, "Unauthorized") ||
+	return strings.Contains(errStr, "Unauthorized") ||
 		strings.Contains(errStr, "authentication") ||
 		strings.Contains(errStr, "invalid credential") ||
 		strings.Contains(errStr, "stale nonce")
@@ -656,7 +664,6 @@ func solveCaptchaBySelectedMode(
 	if ctx.Err() != nil {
 		return "", solveErr
 	}
-	lastErr := solveErr
 	if isCaptchaSessionDead(solveErr) {
 		log.Printf("[STREAM %d] [CAPTCHA] AUTO: the captcha session is dead, requesting a new one from VK", streamID)
 		return "", markCaptchaSessionExpired(streamID)
@@ -676,7 +683,6 @@ func solveCaptchaBySelectedMode(
 		if ctx.Err() != nil {
 			return "", solveErr
 		}
-		lastErr = solveErr
 		if isWebViewCaptchaTimeout(solveErr) {
 			log.Printf("[STREAM %d] [CAPTCHA] AUTO: WBV Auto timeout %d/2", streamID, wbvAttempt)
 		} else {
@@ -701,7 +707,7 @@ func solveCaptchaBySelectedMode(
 	if ctx.Err() != nil {
 		return "", solveErr
 	}
-	lastErr = solveErr
+	autoErr := solveErr
 	log.Printf("[STREAM %d] [CAPTCHA] AUTO: final Go v2 error: %v", streamID, solveErr)
 
 	log.Printf("[STREAM %d] [CAPTCHA] AUTO: the automatic chain failed, opening the manual WebView", streamID)
@@ -710,10 +716,7 @@ func solveCaptchaBySelectedMode(
 		log.Printf("[STREAM %d] [CAPTCHA] AUTO: the manual WebView solved the captcha", streamID)
 		return token, nil
 	}
-	if lastErr != nil {
-		return "", fmt.Errorf("automatic captcha chain failed: %w; manual fallback failed: %v", lastErr, solveErr)
-	}
-	return "", solveErr
+	return "", fmt.Errorf("automatic captcha chain failed: %w; manual fallback failed: %v", autoErr, solveErr)
 }
 
 func requestWebViewCaptcha(streamID int, captchaErr *VkCaptchaError, mode string, timeout time.Duration) (string, error) {
