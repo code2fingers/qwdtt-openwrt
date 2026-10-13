@@ -3,7 +3,7 @@
 #
 # One-command installer for qWDTT on OpenWrt.
 #
-#   wget -qO- https://raw.githubusercontent.com/code2fingers/qwdtt-openwrt/main/install.sh | sh
+#   sh <(wget -O - https://raw.githubusercontent.com/code2fingers/qwdtt-openwrt/main/install.sh)
 #
 # It adds the signed feed and its trust key, then installs the client, the
 # control script and the LuCI page. Both package managers are served: 25.12
@@ -38,28 +38,30 @@ die()  { printf '\033[1;31m[qwdtt]\033[0m %s\n' "$*" >&2; exit 1; }
 
 usage() {
 	cat <<EOF
-Usage: install.sh [-e] [-b URL] [-h]
+Usage: install.sh [-en] [-b URL] [-h]
 
-  -e        do not install the Russian LuCI translation ($I18N_PKG)
+  -en       do not install the Russian LuCI translation ($I18N_PKG)
   -b URL    override the feed base URL (for testing against a sandbox feed)
   -h        show this help
 
 Run as root on the router:
-  wget -qO- https://raw.githubusercontent.com/$REPO_OWNER/$REPO_NAME/main/install.sh | sh
+  sh <(wget -O - https://raw.githubusercontent.com/$REPO_OWNER/$REPO_NAME/main/install.sh)
 
-A piped script gets no arguments of its own, so flags go after 'sh -s --':
-  wget -qO- .../install.sh | sh -s -- -e
+Flags go after it:
+  sh <(wget -O - .../install.sh) -en
 EOF
 	exit 0
 }
 
-while getopts "eb:h" opt; do
-	case "$opt" in
-	e) WANT_I18N=0 ;;
-	b) FEED_BASE=$OPTARG ;;
-	h) usage ;;
-	*) usage ;;
+while [ $# -gt 0 ]; do
+	case "$1" in
+	# -e is the earlier spelling, still in older instructions.
+	-en|-e) WANT_I18N=0 ;;
+	-b) [ $# -ge 2 ] || die "-b needs a URL"; FEED_BASE=$2; shift ;;
+	-h) usage ;;
+	*) warn "unknown option $1"; usage ;;
 	esac
+	shift
 done
 
 [ "$(id -u)" = 0 ] || die "run this as root."

@@ -55,7 +55,7 @@ head_ "$SITE/index.md" "qWDTT OpenWrt Feed"
 	printf 'Pick your OpenWrt release, then your target, and that page gives the\n'
 	printf 'exact commands for your router.\n\n'
 	printf 'With SSH, the one-line installer does all of it for you:\n\n'
-	printf '```sh\nwget -qO- https://raw.githubusercontent.com/%s/main/install.sh | sh\n```\n' "$GITHUB_REPOSITORY"
+	printf '```sh\nsh <(wget -O - https://raw.githubusercontent.com/%s/main/install.sh)\n```\n' "$GITHUB_REPOSITORY"
 	printf '\n## OpenWrt releases\n\n'
 } >> "$SITE/index.md"
 
