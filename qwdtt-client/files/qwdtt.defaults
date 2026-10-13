@@ -56,12 +56,23 @@ uci commit firewall
 # missing all of them. On a first boot netifd is not up yet and there is
 # nothing to restart.
 if handlers=$(ubus call network get_proto_handlers 2>/dev/null); then
+	restarted=
 	for opt in $(sed -n 's/^[[:space:]]*proto_config_add_[a-z]*[[:space:]]*"\([a-z_]*\)".*/\1/p' \
 		/lib/netifd/proto/qwdtt.sh); do
 		[ -z "$(jsonfilter -s "$handlers" -e "@.qwdtt.validate.$opt")" ] || continue
 		/etc/init.d/network restart
+		restarted=1
 		break
 	done
+
+	# A running client keeps the old binary until restarted, and an upgrade from older
+	# versions takes the tunnels down: bring up the ones netifd would start at boot.
+	if [ -z "$restarted" ]; then
+		for t in $(uci -q show network | sed -n "s/^network\.\([^.=]*\)\.proto='qwdtt'$/\1/p"); do
+			[ "$(uci -q get "network.$t.disabled")" = 1 ] ||
+				[ "$(uci -q get "network.$t.auto")" = 0 ] || ifup "$t"
+		done
+	fi
 fi
 
 exit 0
