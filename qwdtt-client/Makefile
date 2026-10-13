@@ -40,8 +40,9 @@ endef
 
 define Package/qwdtt-client/description
 The client half of qWDTT, a novel VPN based on the WDTT protocol family that
-tunnels traffic through VK TURN servers. It creates the TUN interface and
-carries the LAN's IPv4 traffic to a qWDTT server.
+tunnels traffic through VK TURN servers. In RAW mode it creates the TUN
+interface and carries the LAN's IPv4 traffic to a qWDTT server; in WireGuard
+mode it relays a local UDP port for an ordinary WireGuard interface instead.
 
 It also ships the netifd protocol handler, so a tunnel is an interface with
 option proto 'qwdtt' in /etc/config/network rather than a service of its own.

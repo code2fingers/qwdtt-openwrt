@@ -43,8 +43,9 @@ it. What goes in, and how it is arranged, is their decision.
 
 ## Commits
 
-Scope first, then a short subject: `client:`, `ci:`, `docs:`, `comments:`,
-`files:`. One line, and stop there. Add a body only when the change has a
+Scope first, then a short subject: `client:`, `luci:`, `files:`, `qwdtt:`
+(for a change across them), `ci:`, `docs:`, `comments:`, `release:`. One
+line, and stop there. Add a body only when the change has a
 reason that is not visible in the diff -- a constraint that forced it, or an
 exception that would otherwise look like an oversight.
 

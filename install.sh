@@ -5,8 +5,8 @@
 #
 #   sh <(wget -O - https://raw.githubusercontent.com/code2fingers/qwdtt-openwrt/main/install.sh)
 #
-# It adds the signed feed and its trust key, then installs the client, the
-# control script and the LuCI page. Both package managers are served: 25.12
+# It adds the signed feed and its trust key, then installs the client and the
+# LuCI page. Both package managers are served: 25.12
 # and later read an apk index, 24.10 an opkg one, from separate paths under
 # the same site.
 #
