@@ -102,6 +102,8 @@ for tunnel in $$(uci -q show network | \
 	rm -rf "/etc/qwdtt/$$tunnel"
 done
 rmdir /etc/qwdtt 2>/dev/null
+# What the status page reads; teardown keeps it for a tunnel that restarts.
+rm -rf /var/run/qwdtt
 
 exit 0
 endef
