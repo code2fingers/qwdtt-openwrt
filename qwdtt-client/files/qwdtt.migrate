@@ -49,6 +49,7 @@ copy() {
 }
 
 migrated=0
+pending=
 
 for sec in $(uci -q show qwdtt | sed -n "s/^qwdtt\.\([^.=]*\)=qwdtt$/\1/p"); do
 	name=$sec
@@ -56,8 +57,12 @@ for sec in $(uci -q show qwdtt | sed -n "s/^qwdtt\.\([^.=]*\)=qwdtt$/\1/p"); do
 	if [ -n "$json" ]; then
 		command -v json_load_file >/dev/null || . /usr/share/libubox/jshn.sh
 		json_init
-		json_load_file "$json" 2>/dev/null || {
-			say "qwdtt.$sec: $json cannot be read, so it was not converted"
+		json_load_file "$json" 2>/dev/null
+		# json_load_file returns 0 for a missing or broken file; only the values tell.
+		json_get_var peer peer
+		[ -n "$peer" ] || {
+			say "qwdtt.$sec: $json cannot be read or names no peer, so it was not converted"
+			pending=1
 			continue
 		}
 		# The section was always `main`; the device it ran as is the name a
@@ -145,8 +150,13 @@ for sec in $(uci -q show qwdtt | sed -n "s/^qwdtt\.\([^.=]*\)=qwdtt$/\1/p"); do
 done
 
 uci commit network
-mv "$OLD" "$OLD.migrated"
-say "$OLD has been converted into $migrated interface(s) and set aside as $OLD.migrated"
+# uci-defaults keeps a script that fails, so an unreadable JSON config is tried again at the next boot.
+if [ -z "$pending" ]; then
+	mv "$OLD" "$OLD.migrated"
+	say "$OLD has been converted into $migrated interface(s) and set aside as $OLD.migrated"
+else
+	say "$OLD is kept: a JSON config could not be read, and the conversion runs again at the next boot"
+fi
 
 [ "$migrated" = 0 ] || [ ! -x /etc/init.d/network ] || /etc/init.d/network reload
-exit 0
+[ -z "$pending" ]

@@ -213,13 +213,14 @@ turn_tcp=1
 tun_name=qwdtt0
 lan_interface=br-lan'
 json_init() { :; }
-json_load_file() { [ -r "$1" ]; }
+# Like jshn: success whatever the file, and no values unless it could be read.
+json_load_file() { JSON_OK=; [ ! -r "$1" ] || JSON_OK=1; }
 json_select() { :; }
-json_get_var() { eval "$1=\$(printf '%s\n' \"\$ARCHIVE\" | sed -n 's/^$2=//p')"; }
-json_get_values() { eval "$1='hhh iii'"; }
+json_get_var() { [ -n "$JSON_OK" ] || { eval "$1="; return; }; eval "$1=\$(printf '%s\n' \"\$ARCHIVE\" | sed -n 's/^$2=//p')"; }
+json_get_values() { [ -n "$JSON_OK" ] || { eval "$1="; return; }; eval "$1='hhh iii'"; }
 printf '{}\n' > "$WORK/config.json"
 : > "$NETWORK"
-log=$(. ./qwdtt-client/files/qwdtt.migrate)
+log=$(. ./qwdtt-client/files/qwdtt.migrate); status=$?
 got=$(dump)
 want="network.qwdtt0.config_file=$WORK/config.json
 network.qwdtt0.device_id=openwrt-router
@@ -237,6 +238,29 @@ network.qwdtt0_rule.lookup=51820
 network.qwdtt0_rule.priority=9999
 network.qwdtt0_rule=rule"
 check "the archive's JSON config, converted" "$got" "$(printf '%s\n' "$want" | sort)"
+check "a converted archive config ends the run cleanly" "$status" 0
+
+# A JSON config that cannot be read is not converted, and the old file stays so
+# the conversion runs again: uci-defaults keeps a script that fails.
+QWDTT="qwdtt.main=qwdtt
+qwdtt.main.enabled=1
+qwdtt.main.config=$WORK/missing.json"
+: > "$NETWORK"
+log=$(. ./qwdtt-client/files/qwdtt.migrate); status=$?
+check "an unreadable JSON config fails the run" "$status" 1
+case $log in
+*'moved:'*)
+	echo "the old config was set aside though a JSON config could not be read:"
+	echo "$log"
+	fail=1 ;;
+esac
+case $log in
+*'is kept'*) ;;
+*)
+	echo "keeping the old config was not reported:"
+	echo "$log"
+	fail=1 ;;
+esac
 
 [ "$fail" = 0 ] || exit 1
 echo "qwdtt.migrate: ok"
