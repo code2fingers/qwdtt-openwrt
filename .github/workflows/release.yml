@@ -53,15 +53,19 @@ jobs:
             fi
           done
 
-          case "${GITHUB_REF:-}" in
-          refs/tags/v*)
+          case "$GITHUB_EVENT_NAME:${GITHUB_REF:-}" in
+          workflow_dispatch:*)
+            # Dispatch: rebuild and republish the feed, release nothing.
+            tag=v$cur
+            build=true; release=false ;;
+          *:refs/tags/v*)
             tag=$GITHUB_REF_NAME
             if [ "${tag#v}" != "$cur" ]; then
               echo "tag $tag does not match PKG_VERSION $cur"
               exit 1
             fi
             build=true; release=true ;;
-          refs/heads/main)
+          *:refs/heads/main)
             # Release when the tree's version has no tag yet: the state a merged bump leaves.
             tag=v$cur
             if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
@@ -71,9 +75,8 @@ jobs:
               build=true; release=true
             fi ;;
           *)
-            # Dispatch: rebuild and republish the feed, release nothing.
-            tag=v$cur
-            build=true; release=false ;;
+            echo "unexpected event $GITHUB_EVENT_NAME on ${GITHUB_REF:-}"
+            exit 1 ;;
           esac
 
           echo "version=$cur tag=$tag build=$build release=$release"
@@ -301,7 +304,8 @@ jobs:
         run: |
           mkdir -p apkroot/etc/apk/keys
           cp keys/qwdtt.pem apkroot/etc/apk/keys/qwdtt.pem
-          tar -C apkroot -czf dist/qwdtt-apk-key.tar.gz etc
+          # Owned by root: a restore unpacks these over /etc and keeps the owner.
+          tar --owner=0 --group=0 --numeric-owner -C apkroot -czf dist/qwdtt-apk-key.tar.gz etc
           tar -tzvf dist/qwdtt-apk-key.tar.gz
 
           # opkg finds a key by its id: a usign public key is a 2-byte tag, then the 8-byte id.
@@ -310,7 +314,7 @@ jobs:
           echo "usign key id: $keyid"
           mkdir -p opkgroot/etc/opkg/keys
           cp keys/qwdtt-usign.pub "opkgroot/etc/opkg/keys/$keyid"
-          tar -C opkgroot -czf dist/qwdtt-opkg-key.tar.gz etc
+          tar --owner=0 --group=0 --numeric-owner -C opkgroot -czf dist/qwdtt-opkg-key.tar.gz etc
           tar -tzvf dist/qwdtt-opkg-key.tar.gz
 
       - name: Publish
