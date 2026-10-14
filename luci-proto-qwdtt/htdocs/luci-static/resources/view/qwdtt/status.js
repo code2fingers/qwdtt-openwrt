@@ -497,6 +497,8 @@ function checkSection(nets) {
 			if (/packets transmitted/.test(out.value))
 				return;
 			return fs.exec('/bin/ping', args).then(function(res) {
+				if (res.stdout)
+					out.value += res.stdout;
 				if (res.stderr)
 					out.value += res.stderr;
 				if (res.code)
