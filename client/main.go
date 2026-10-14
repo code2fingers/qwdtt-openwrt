@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"cmp"
 	"context"
 	"flag"
 	"fmt"
@@ -187,11 +188,11 @@ func main() {
 		}
 	}
 	deviceID := flag.String("device-id", deviceIDDefault, "unique device ID")
-	connPassword := flag.String("password", fileConfig.Password, "connection password (or QWDTT_PASSWORD in the environment)")
+	connPassword := flag.String("password", "", "connection password (or QWDTT_PASSWORD in the environment)")
 	rateDown := flag.Int("rate-down", 0, "per-session download limit from the relay, in Kbit/s (0 = unlimited)")
 	rateUp := flag.Int("rate-up", 0, "per-session upload limit to the relay, in Kbit/s (0 = unlimited)")
-	vkClientID := flag.String("vk-client-id", fileConfig.VKClientID, "VK application id for the anonymous path, replacing the built-in pair (or QWDTT_VK_CLIENT_ID)")
-	vkClientSecret := flag.String("vk-client-secret", fileConfig.VKClientSec, "VK application secret to go with -vk-client-id (or QWDTT_VK_CLIENT_SECRET)")
+	vkClientID := flag.String("vk-client-id", "", "VK application id for the anonymous path, replacing the built-in pair (or QWDTT_VK_CLIENT_ID)")
+	vkClientSecret := flag.String("vk-client-secret", "", "VK application secret to go with -vk-client-id (or QWDTT_VK_CLIENT_SECRET)")
 	captchaModeDefault := fileConfig.CaptchaMode
 	if captchaModeDefault == "" {
 		captchaModeDefault = "auto"
@@ -291,15 +292,12 @@ func main() {
 	// with the built-in application pair while the tunnel it is checking for
 	// would use the replacement, so it could report an authentication
 	// failure the connection never meets.
-	if *connPassword == "" {
-		*connPassword = os.Getenv("QWDTT_PASSWORD")
-	}
-	if *vkClientID == "" {
-		*vkClientID = os.Getenv("QWDTT_VK_CLIENT_ID")
-	}
-	if *vkClientSecret == "" {
-		*vkClientSecret = os.Getenv("QWDTT_VK_CLIENT_SECRET")
-	}
+	//
+	// netifd passes the interface's own settings in the environment, so they
+	// outrank the JSON file the interface may still name.
+	*connPassword = cmp.Or(*connPassword, os.Getenv("QWDTT_PASSWORD"), fileConfig.Password)
+	*vkClientID = cmp.Or(*vkClientID, os.Getenv("QWDTT_VK_CLIENT_ID"), fileConfig.VKClientID)
+	*vkClientSecret = cmp.Or(*vkClientSecret, os.Getenv("QWDTT_VK_CLIENT_SECRET"), fileConfig.VKClientSec)
 	if (*vkClientID == "") != (*vkClientSecret == "") {
 		log.Fatal("[CLIENT] -vk-client-id and -vk-client-secret go together")
 	}
