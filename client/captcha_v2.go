@@ -517,7 +517,8 @@ func (s *captchaV2Session) fetchCaptchaHTML(redirectURI string) (string, error) 
 // UUID, which is the value whatever it ends up being called.
 func extractCaptchaDebugInfo(html string) (string, bool) {
 	block := html
-	if at := strings.Index(html, "window.vk"); at >= 0 {
+	at := strings.Index(html, "window.vk")
+	if at >= 0 {
 		block = html[at:]
 		if end := strings.Index(block, "};"); end > 0 {
 			block = block[:end]
@@ -526,6 +527,9 @@ func extractCaptchaDebugInfo(html string) (string, bool) {
 
 	if m := reCaptchaV2DebugNamed.FindStringSubmatch(block); len(m) >= 2 {
 		return m[1], true
+	}
+	if at < 0 {
+		return "", false
 	}
 
 	found := reCaptchaV2DebugUUID.FindAllString(block, 2)

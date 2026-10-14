@@ -230,6 +230,14 @@ func TestExtractCaptchaDebugInfo(t *testing.T) {
 			t.Errorf("found %q on a page with none", got)
 		}
 	})
+
+	// A page too old to have window.vk leaves it to the bundle.
+	t.Run("no window.vk, a stray UUID", func(t *testing.T) {
+		page := `<html><script>var requestId = "` + uuid + `";</script></html>`
+		if got, ok := extractCaptchaDebugInfo(page); ok {
+			t.Errorf("took %q from outside window.vk", got)
+		}
+	})
 }
 
 // The slider key moved between two field names, and a server that has not
