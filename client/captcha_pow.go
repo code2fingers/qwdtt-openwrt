@@ -167,7 +167,11 @@ func classifyCallAround(toks []jsToken, k int, source string, markerMode bool) (
 	var seedCandidates []string
 	for _, s := range strArgs {
 		low := strings.ToLower(s)
-		if strings.Contains(low, "pow") || strings.Contains(low, "timeout") || strings.Contains(low, "seed") {
+		isMarker := strings.Contains(low, "pow") || strings.Contains(low, "timeout") || strings.Contains(low, "seed")
+		if markerMode {
+			isMarker = s == toks[k].Val
+		}
+		if isMarker {
 			if seed.Marker == "" {
 				seed.Marker = s
 			}

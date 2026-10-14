@@ -72,6 +72,16 @@ func TestExtractPowSeed(t *testing.T) {
 	}
 }
 
+// A random seed spells "pow" about once in two thousand captchas.
+func TestExtractPowSeedThatSpellsPow(t *testing.T) {
+	const want = "bC2NroTIH2mSpOwH"
+	html := strings.Replace(powFixture(t), powFixtureCall, "'"+want+"',2,'pow_timeout'", 1)
+	seed, ok := extractPowSeed(html)
+	if !ok || seed.PowInput != want {
+		t.Fatalf("got %+v/%v, want powInput %q", seed, ok, want)
+	}
+}
+
 // Where this stops working, written down because it is not obvious and
 // because the day it matters nobody will want to rediscover it.
 //
