@@ -126,8 +126,6 @@ func TestNetifdWatchAction(t *testing.T) {
 	}
 }
 
-// A wrong checksum is dropped by the far end in silence, which would read
-// here as a server that never answers.
 // The wireguard-mode watch has no probe to fall back on, so its whole safety
 // rests on telling "we are sending and nothing comes back" from "nothing is
 // pointed at this relay". Getting the second one wrong would restart a tunnel
@@ -183,6 +181,8 @@ func TestNetifdRelayStalled(t *testing.T) {
 	}
 }
 
+// A wrong checksum is dropped by the far end in silence, which would read
+// here as a server that never answers.
 func TestICMPEcho(t *testing.T) {
 	b := icmpEcho(0x1234)
 	if len(b) != 8 || b[0] != icmpEchoRequest {
