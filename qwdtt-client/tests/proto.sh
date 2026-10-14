@@ -63,6 +63,19 @@ json_get_values() { eval "$1=\"\$(cfg \"\$SECTION\" \"\$2\")\""; }
 
 logger() { shift 2; echo "log: $*"; }
 
+# The two questions the handler asks of a config file: is it a JSON object,
+# and what password does it hold.
+jsonfilter() {
+	case $(cat "$2" 2>/dev/null) in
+	'{'*'}') ;;
+	*) return 1 ;;
+	esac
+	case $4 in
+	@.password) sed -n 's/.*"password" *: *"\([^"]*\)".*/\1/p' "$2" ;;
+	*) cat "$2" ;;
+	esac
+}
+
 uci() {
 	[ "${1:-}" = -q ] && shift
 	case "${1:-}" in
@@ -420,7 +433,7 @@ set_cfg wgt.auto 1
 # one - and refused clearly when it names a file that cannot be read, since
 # the client exits on that and netifd would restart it at once.
 set_cfg nopass.config_file "$QWDTT_RUN_DIR/creds.json"
-: > "$QWDTT_RUN_DIR/creds.json"
+echo '{"password": "p3"}' > "$QWDTT_RUN_DIR/creds.json"
 SECTION=nopass
 got=$(proto_qwdtt_setup nopass 2>&1)
 case $got in
@@ -436,6 +449,10 @@ case $got in
 	echo "$got"
 	fail=1 ;;
 esac
+echo 'not json' > "$QWDTT_RUN_DIR/creds.json"
+refusal "a config file that is not JSON" nopass UNREADABLE_CONFIG_FILE
+echo '{}' > "$QWDTT_RUN_DIR/creds.json"
+refusal "a config file with no password, and none set here" nopass MISSING_PASSWORD
 command rm -f "$QWDTT_RUN_DIR/creds.json"
 refusal "a config file that cannot be read" nopass UNREADABLE_CONFIG_FILE
 

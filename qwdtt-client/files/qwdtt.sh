@@ -229,22 +229,23 @@ proto_qwdtt_setup() {
 		proto_block_restart "$config"
 		return 1
 	}
+	# Checked here rather than left to the client, which exits on a file it
+	# cannot read or parse. netifd would start it again the instant it does,
+	# which is the restart storm MISSING_PASSWORD below exists to prevent.
+	[ -z "$config_file" ] || jsonfilter -i "$config_file" -e '@' >/dev/null 2>&1 || {
+		logger -t qwdtt "network.$config.config_file $config_file cannot be read as JSON"
+		proto_notify_error "$config" "UNREADABLE_CONFIG_FILE"
+		proto_block_restart "$config"
+		return 1
+	}
 	# Every packet is sealed with a key derived from this, so the client has
 	# nothing to do without it and exits - and netifd starts it again the
 	# instant it does, with no backoff. Measured on a router: 349 starts in
 	# thirty seconds, with the interface page showing nothing at all.
-	[ -n "$password" ] || [ -n "$config_file" ] || {
-		logger -t qwdtt "network.$config.password is not set"
+	[ -n "$password" ] ||
+		{ [ -n "$config_file" ] && [ -n "$(jsonfilter -i "$config_file" -e '@.password' 2>/dev/null)" ]; } || {
+		logger -t qwdtt "network.$config.password is not set${config_file:+, nor in $config_file}"
 		proto_notify_error "$config" "MISSING_PASSWORD"
-		proto_block_restart "$config"
-		return 1
-	}
-	# Checked here rather than left to the client, which exits on an
-	# unreadable one. netifd would start it again the instant it does, which
-	# is the restart storm MISSING_PASSWORD above exists to prevent.
-	[ -z "$config_file" ] || [ -r "$config_file" ] || {
-		logger -t qwdtt "network.$config.config_file $config_file cannot be read"
-		proto_notify_error "$config" "UNREADABLE_CONFIG_FILE"
 		proto_block_restart "$config"
 		return 1
 	}
