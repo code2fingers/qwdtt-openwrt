@@ -362,6 +362,7 @@ jobs:
           GOMIPS: ${{ matrix.gomips }}
           # 64-bit MIPS reads this one; GOMIPS is ignored there.
           GOMIPS64: ${{ matrix.gomips64 }}
+          GO386: ${{ matrix.go386 }}
         run: go build -tags=openwrt -trimpath -ldflags="-s -w" -o ../qwdtt-client/files/qwdtt-client .
 
       - name: Build with the OpenWrt SDK
