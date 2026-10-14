@@ -158,5 +158,10 @@ else
 	say "$OLD is kept: a JSON config could not be read, and the conversion runs again at the next boot"
 fi
 
-[ "$migrated" = 0 ] || [ ! -x /etc/init.d/network ] || /etc/init.d/network reload
+if [ "$migrated" != 0 ]; then
+	# The archive's init script, or the old qwdtt package's, would keep its
+	# client running beside the one netifd starts for the same tunnel.
+	[ ! -x /etc/init.d/qwdtt ] || { /etc/init.d/qwdtt stop; /etc/init.d/qwdtt disable; }
+	[ ! -x /etc/init.d/network ] || /etc/init.d/network reload
+fi
 [ -z "$pending" ]
