@@ -201,3 +201,11 @@ func restoreLimits(t *testing.T) {
 	sessionRecvLimit, sessionSendLimit = 0, 0
 	tunnelRecvLimiter, tunnelSendLimiter = nil, nil
 }
+
+// 200 Mbit/s over 108 sessions is past 2^31 bytes per second, which an int
+// wraps to a negative rate on the 32-bit routers most of this runs on.
+func TestTunnelLimiterAboveTwoGigabytes(t *testing.T) {
+	if got := newTunnelLimiter(200000*125, 108).Limit(); got != 2.7e9 {
+		t.Errorf("limit is %v bytes/s, want 2.7e9", got)
+	}
+}

@@ -54,7 +54,7 @@ func newTunnelLimiter(perSession, workers int) *rate.Limiter {
 	if perSession <= 0 || workers <= 0 {
 		return nil
 	}
-	return rate.NewLimiter(rate.Limit(perSession*workers), pktBufSize)
+	return rate.NewLimiter(rate.Limit(perSession)*rate.Limit(workers), pktBufSize)
 }
 
 // Follows the sessions that are actually carrying traffic, not the number
@@ -66,10 +66,10 @@ func setTunnelSessions(n int) {
 		return
 	}
 	if tunnelRecvLimiter != nil {
-		tunnelRecvLimiter.SetLimit(rate.Limit(sessionRecvLimit * n))
+		tunnelRecvLimiter.SetLimit(rate.Limit(sessionRecvLimit) * rate.Limit(n))
 	}
 	if tunnelSendLimiter != nil {
-		tunnelSendLimiter.SetLimit(rate.Limit(sessionSendLimit * n))
+		tunnelSendLimiter.SetLimit(rate.Limit(sessionSendLimit) * rate.Limit(n))
 	}
 }
 
