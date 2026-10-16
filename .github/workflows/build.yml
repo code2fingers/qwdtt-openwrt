@@ -244,6 +244,11 @@ jobs:
           # fails with "No rule to make target". qwdtt-client is built anyway as a dependency.
           PACKAGES: luci-proto-qwdtt
 
+      - name: Clear the first attempt's output
+        # The SDK moves bin/ and logs/ here even after a failed build, and the second attempt's move fails on them.
+        if: steps.sdk.outcome == 'failure'
+        run: rm -rf bin logs
+
       - name: Build with the OpenWrt SDK, second attempt
         if: steps.sdk.outcome == 'failure'
         uses: openwrt/gh-action-sdk@v11
@@ -375,6 +380,11 @@ jobs:
           ARCH: ${{ matrix.sdk }}
           FEEDNAME: qwdtt
           PACKAGES: qwdtt-client
+
+      - name: Clear the first attempt's output
+        # The SDK moves bin/ and logs/ here even after a failed build, and the second attempt's move fails on them.
+        if: steps.sdk.outcome == 'failure'
+        run: rm -rf bin logs
 
       - name: Build with the OpenWrt SDK, second attempt
         if: steps.sdk.outcome == 'failure'
