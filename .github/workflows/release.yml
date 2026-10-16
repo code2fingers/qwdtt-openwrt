@@ -225,6 +225,11 @@ jobs:
         run: |
           cp keys/qwdtt.pem site/qwdtt.pem
           cp keys/qwdtt-usign.pub site/qwdtt-usign.pub
+          # opkg finds a key by its id: a usign public key is a 2-byte tag, then the 8-byte id. Published
+          # under that name too, because LuCI's Repo Public Keys saves a key under its URL's last segment.
+          keyid=$(sed -n '2p' keys/qwdtt-usign.pub | base64 -d |
+                  od -An -tx1 -j2 -N8 | tr -d ' \n')
+          cp keys/qwdtt-usign.pub "site/$keyid"
           docker run --rm -v "$PWD:/w" -w /w ghcr.io/openwrt/sdk:${{ needs.build.outputs.apk_sdk }} \
             sh -c 'mkdir -p /tmp/k && cp /w/keys/qwdtt.pem /tmp/k/
                    for i in /w/site/releases/25.12/*/packages.adb; do
@@ -298,32 +303,13 @@ jobs:
             mv "$f" "dist/$(basename "$f" .apk)-$arch.apk"
           done
 
-      # Shaped as a backup archive: restoring it under System -> Backup is the only way
-      # to place a key without shell access.
-      - name: Build the key archives
-        run: |
-          mkdir -p apkroot/etc/apk/keys
-          cp keys/qwdtt.pem apkroot/etc/apk/keys/qwdtt.pem
-          # Owned by root: a restore unpacks these over /etc and keeps the owner.
-          tar --owner=0 --group=0 --numeric-owner -C apkroot -czf dist/qwdtt-apk-key.tar.gz etc
-          tar -tzvf dist/qwdtt-apk-key.tar.gz
-
-          # opkg finds a key by its id: a usign public key is a 2-byte tag, then the 8-byte id.
-          keyid=$(sed -n '2p' keys/qwdtt-usign.pub | base64 -d |
-                  od -An -tx1 -j2 -N8 | tr -d ' \n')
-          echo "usign key id: $keyid"
-          mkdir -p opkgroot/etc/opkg/keys
-          cp keys/qwdtt-usign.pub "opkgroot/etc/opkg/keys/$keyid"
-          tar --owner=0 --group=0 --numeric-owner -C opkgroot -czf dist/qwdtt-opkg-key.tar.gz etc
-          tar -tzvf dist/qwdtt-opkg-key.tar.gz
-
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.version.outputs.tag }}
         run: |
           assets=$(find dist -type f \
-            \( -name '*-key.tar.gz' -o -name '*.ipk' -o -name '*.apk' \) | sort)
+            \( -name '*.ipk' -o -name '*.apk' \) | sort)
           echo "$assets"
 
           # Fail loudly rather than let the upload silently drop one of a pair:

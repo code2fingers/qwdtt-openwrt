@@ -60,8 +60,8 @@ sh <(wget -O - https://raw.githubusercontent.com/code2fingers/qwdtt-openwrt/main
 Пакеты раздаются через подписанный
 [feed](https://code2fingers.github.io/qwdtt-openwrt/): роутер проверяет
 подпись индекса при обновлении списков пакетов. Подробно о feed, архитектурах
-и ключах - [docs/custom-feed.md](docs/custom-feed.md). Сами пакеты и архивы с
-ключами лежат также на странице [Releases](../../releases/latest).
+и ключах - [docs/custom-feed.md](docs/custom-feed.md). Сами пакеты лежат
+также на странице [Releases](../../releases/latest).
 
 Способы установки:
 
@@ -69,9 +69,10 @@ sh <(wget -O - https://raw.githubusercontent.com/code2fingers/qwdtt-openwrt/main
 2. **Вручную через менеджер пакетов**: добавить feed и его ключ, затем
    `opkg install` или `apk add` - см. [docs/custom-feed.md](docs/custom-feed.md).
 3. **Через LuCI, без SSH**:
-   1. Скачать со страницы [Releases](../../releases/latest) архив ключа:
-      `qwdtt-apk-key.tar.gz` для 25.12 или `qwdtt-opkg-key.tar.gz` для 24.10.
-      Восстановить его в System -> Backup / Flash Firmware -> Restore.
+   1. В System -> Administration -> Repo Public Keys вставить адрес ключа и
+      нажать Add key:
+      - 25.12: `https://code2fingers.github.io/qwdtt-openwrt/qwdtt.pem`
+      - 24.10: `https://code2fingers.github.io/qwdtt-openwrt/fa06b754936d35c5`
    2. В System -> Software -> Configuration добавить строку feed для своей
       архитектуры (адреса - на [странице feed](https://code2fingers.github.io/qwdtt-openwrt/))
       и нажать Update lists.
