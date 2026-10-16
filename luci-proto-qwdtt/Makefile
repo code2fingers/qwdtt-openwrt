@@ -9,7 +9,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-proto-qwdtt
 # The repository's tag, shared with qwdtt-client; see qwdtt-client/Makefile.
-PKG_VERSION:=1.2.0
+PKG_VERSION:=1.2.1
 PKG_RELEASE:=1
 
 # Both are deliberately empty, and both are needed. PKG_MAINTAINER covers the
