@@ -8,12 +8,8 @@
 				"file": [ "exec" ]
 			},
 			"file": {
-				"/bin/ping": [ "exec" ],
-				"/usr/bin/ping": [ "exec" ]
+				"/bin/ping": [ "exec" ]
 			},
-			"uci": [ "network" ]
-		},
-		"write": {
 			"uci": [ "network" ]
 		}
 	}
