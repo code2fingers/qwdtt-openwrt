@@ -4,7 +4,6 @@
 [![Release date](https://img.shields.io/github/release-date/code2fingers/qwdtt-openwrt)](https://github.com/code2fingers/qwdtt-openwrt/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/code2fingers/qwdtt-openwrt/total)](https://github.com/code2fingers/qwdtt-openwrt/releases)
 
-
 qWDTT-клиент для роутеров OpenWrt с возможностью настройки через
 UCI и веб-интерфейс LuCI, а также с отдельной страницей LuCI для
 отслеживания состояния туннелей qWDTT.
@@ -17,6 +16,19 @@ UCI и веб-интерфейс LuCI, а также с отдельной ст�
 [SpaceNeuroX/qwdtt-openwrt](https://github.com/SpaceNeuroX/qwdtt-openwrt) -
 исходный проект клиента qWDTT для OpenWrt, на основе которого создан этот
 проект.
+
+## Интерфейс LuCI
+
+<table>
+<tr>
+<td align="center" valign="top"><b>Страница статуса и проверки интерфейсов qWDTT</b><br>
+<a href="https://github.com/user-attachments/assets/b3a04c96-cdb1-4baa-9bce-a3b16e31e505"><img width="240" alt="Страница статуса qWDTT" src="https://github.com/user-attachments/assets/b3a04c96-cdb1-4baa-9bce-a3b16e31e505" /></a></td>
+<td align="center" valign="top"><b>Добавление интерфейса qWDTT</b><br>
+<a href="https://github.com/user-attachments/assets/87637e63-0295-4ab4-a42a-2abfdb9065d2"><img width="240" alt="Добавление интерфейса qWDTT" src="https://github.com/user-attachments/assets/87637e63-0295-4ab4-a42a-2abfdb9065d2" /></a></td>
+<td align="center" valign="top"><b>Настройка интерфейса qWDTT</b><br>
+<a href="https://github.com/user-attachments/assets/074f98c4-76c9-44e8-8f70-925053276d47"><img width="240" alt="Настройка интерфейса qWDTT" src="https://github.com/user-attachments/assets/074f98c4-76c9-44e8-8f70-925053276d47" /></a></td>
+</tr>
+</table>
 
 ## Требования
 
