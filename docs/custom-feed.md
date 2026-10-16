@@ -138,18 +138,14 @@ opkg install luci-i18n-qwdtt-ru
 
 ## Без SSH, через LuCI
 
-Ключ нельзя положить в `/etc/apk/keys` из веб-интерфейса: модалка Configuration
-в менеджере пакетов правит только список репозиториев. Поэтому ключ приходит
-архивом резервной копии.
-
-1. Скачайте со страницы [Releases](../../../releases/latest) архив
-   `qwdtt-apk-key.tar.gz` для 25.12 или `qwdtt-opkg-key.tar.gz` для 24.10.
-2. Восстановите его в System -> Backup / Flash Firmware -> "Restore". Архив
-   кладет публичный ключ в `/etc/apk/keys` или в `/etc/opkg/keys`
-   соответственно.
-3. В System -> Software -> Configuration допишите строку feed для своей
+1. В System -> Administration -> Repo Public Keys вставьте адрес ключа и
+   нажмите "Add key":
+   - 25.12: `https://code2fingers.github.io/qwdtt-openwrt/qwdtt.pem`
+   - 24.10: `https://code2fingers.github.io/qwdtt-openwrt/fa06b754936d35c5` -
+     ключ `opkg` ищется по имени файла, и страница сохранит его под этим именем.
+2. В System -> Software -> Configuration допишите строку feed для своей
    архитектуры - ту же, что в разделах выше.
-4. Сохраните, нажмите "Update lists…", затем поставьте `qwdtt-client` и
+3. Сохраните, нажмите "Update lists…", затем поставьте `qwdtt-client` и
    `luci-proto-qwdtt` в System -> Software.
 
 Загружать `.apk` файлом через LuCI бессмысленно: бэкенд вызывает
@@ -164,6 +160,7 @@ opkg install luci-i18n-qwdtt-ru
 | --- | --- | --- |
 | apk | [`qwdtt.pem`](https://code2fingers.github.io/qwdtt-openwrt/qwdtt.pem) | проверка `packages.adb` |
 | opkg | [`qwdtt-usign.pub`](https://code2fingers.github.io/qwdtt-openwrt/qwdtt-usign.pub) | проверка `Packages.sig` |
+| opkg | [`fa06b754936d35c5`](https://code2fingers.github.io/qwdtt-openwrt/fa06b754936d35c5) | тот же ключ под именем, по которому его ищет `opkg` |
 
 Те же файлы лежат в репозитории в каталоге [`keys/`](../keys), так что их можно
 сверить с тем, что отдает Pages.
