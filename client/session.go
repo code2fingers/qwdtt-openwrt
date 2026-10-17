@@ -114,13 +114,18 @@ var handshakeSem = make(chan struct{}, 3)
 // bin.
 //
 // Rare by construction: pion logs its ordinary business at info and below.
-type pionLoggerFactory struct{}
-
-func (pionLoggerFactory) NewLogger(scope string) logging.LeveledLogger {
-	return &pionLogger{scope: scope}
+type pionLoggerFactory struct {
+	refused func(reason string) // nil outside a session
 }
 
-type pionLogger struct{ scope string }
+func (f pionLoggerFactory) NewLogger(scope string) logging.LeveledLogger {
+	return &pionLogger{scope: scope, refused: f.refused}
+}
+
+type pionLogger struct {
+	scope   string
+	refused func(reason string)
+}
 
 func (l *pionLogger) Trace(string)          {}
 func (l *pionLogger) Tracef(string, ...any) {}
@@ -132,6 +137,24 @@ func (l *pionLogger) Warn(msg string)       { log.Printf("[PION %s] %s", l.scope
 func (l *pionLogger) Error(msg string)      { log.Printf("[PION %s] %s", l.scope, msg) }
 func (l *pionLogger) Warnf(f string, a ...any) {
 	log.Printf("[PION %s] "+f, append([]any{l.scope}, a...)...)
+	if l.refused != nil && relayRefusedRefresh(f, a) {
+		l.refused(fmt.Sprintf(f, a...))
+	}
+}
+
+// Whether the relay has refused to keep this allocation's permission or channel
+// binding. pion carries on sending regardless, and VK discards what it sends: the
+// session still receives, but its upload is gone. Said only in pion's log, so
+// read from there; a lost transaction is not a refusal and is left to pion.
+func relayRefusedRefresh(format string, args []any) bool {
+	switch format {
+	case "Failed to refresh permissions: %s":
+		err, _ := args[0].(error)
+		return stunErrorCode(err) != 0
+	case "ChannelBind returned 400 for saved binding %s on channel %d; keeping binding ready":
+		return true
+	}
+	return false
 }
 
 func (l *pionLogger) Errorf(f string, a ...any) {
@@ -268,6 +291,16 @@ func RunSession(
 		addrFamily = turn.RequestedAddressFamilyIPv6
 	}
 
+	sessCtx, sessCancel := context.WithCancel(ctx)
+	defer sessCancel()
+
+	var refusal atomic.Pointer[string]
+	refused := func(reason string) {
+		if refusal.CompareAndSwap(nil, &reason) {
+			sessCancel()
+		}
+	}
+
 	// Pion's default stdnet.NewNet enumerates network interfaces through
 	// NETLINK_ROUTE. Some Huawei/Honor ROMs deny that operation to apps.
 	// The zero-value stdnet.Net provides everything this UDP client uses
@@ -280,7 +313,7 @@ func RunSession(
 		Username:               creds.User,
 		Password:               creds.Pass,
 		RequestedAddressFamily: addrFamily,
-		LoggerFactory:          pionLoggerFactory{},
+		LoggerFactory:          pionLoggerFactory{refused: refused},
 	})
 	if err != nil {
 		return false, fmt.Errorf("TURN client: %w", err)
@@ -323,9 +356,6 @@ func RunSession(
 	getStreamCache(creds.CacheStreamID).errorCount.Store(0)
 
 	log.Printf("[SESSION #%d] Relay: %s", sessionID, relay.LocalAddr())
-
-	sessCtx, sessCancel := context.WithCancel(ctx)
-	defer sessCancel()
 
 	// Keepalive goroutine (TURN binding request)
 	var sessionWg sync.WaitGroup
@@ -780,6 +810,9 @@ func RunSession(
 	// worst move available, so surface the error instead.
 	if err := stalePathErr.Load(); err != nil {
 		return configDelivered, fmt.Errorf("socket local address is no longer usable: %w", *err)
+	}
+	if reason := refusal.Load(); reason != nil {
+		return configDelivered, fmt.Errorf("the TURN relay refused a refresh (%s), recreating the session", *reason)
 	}
 	return configDelivered, nil
 }
