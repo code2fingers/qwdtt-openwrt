@@ -226,8 +226,12 @@ func WorkerGroup(
 				// can tell an uplink that moved from a firewall that refused a
 				// source address which did not.
 				srcBefore := currentSource(peer.String())
+				sessStart := time.Now()
 				configDelivered, sessErr := RunSession(ctx, tp, peer, d, localPort,
 					getConf, cc, wid, &credsSnapshot, deviceID, password, stats, allocateTicker.C)
+				if time.Since(sessStart) > time.Minute {
+					attempt = 0
+				}
 
 				quotaRetry := false
 				if getConf {
@@ -312,17 +316,23 @@ func WorkerGroup(
 						return
 					}
 
+					// Logged on every retry, eight stuck workers wrote 10,000 lines in
+					// three hours and pushed whatever started it out of the log.
 					attempt++
+					logf := log.Printf
+					if attempt > 3 && attempt%50 != 0 {
+						logf = func(string, ...any) {}
+					}
 					if isTurnQuota {
-						log.Printf("[WORKER #%d] [TURN] Relay quota exhausted (one VK account = few slots), waiting: %s", wid, errStr)
+						logf("[WORKER #%d] [TURN] Relay quota exhausted (one VK account = few slots), waiting: %s", wid, errStr)
 					} else if turnAllocAttrMissing {
-						log.Printf("[WORKER #%d] [TURN] Allocate returned an incomplete response, refreshing TURN credentials and retrying (attempt %d): %s", wid, attempt, errStr)
+						logf("[WORKER #%d] [TURN] Allocate returned an incomplete response, refreshing TURN credentials and retrying (attempt %d): %s", wid, attempt, errStr)
 						refreshCreds("TURN Allocate attribute-not-found")
 					} else if turnCredRefreshNeeded {
-						log.Printf("[WORKER #%d] [TURN] Allocation/credentials error, refreshing TURN credentials and retrying (attempt %d): %s", wid, attempt, errStr)
+						logf("[WORKER #%d] [TURN] Allocation/credentials error, refreshing TURN credentials and retrying (attempt %d): %s", wid, attempt, errStr)
 						refreshCreds("TURN allocation error")
 					} else {
-						log.Printf("[WORKER #%d] Error (attempt %d): %s", wid, attempt, errStr)
+						logf("[WORKER #%d] Error (attempt %d): %s", wid, attempt, errStr)
 					}
 
 					// Neither of these is permanent, and both were treated as if
@@ -340,6 +350,11 @@ func WorkerGroup(
 					// how it stays a rate limit.
 					if strings.Contains(errStrLower, "error 29") ||
 						strings.Contains(errStrLower, "cannot create socket") {
+						quotaRetry = true
+					}
+					// Ten failures in a row are not a lost packet, and asking again
+					// every few seconds only spends allocations VK counts.
+					if attempt > 10 {
 						quotaRetry = true
 					}
 				}
