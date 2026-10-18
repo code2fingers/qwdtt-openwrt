@@ -284,7 +284,9 @@ func WorkerGroup(
 					// ephemeral port can contain.
 					isTurnQuota := strings.Contains(errStrLower, "quota")
 					quotaRetry = isTurnQuota
-					turnCredRefreshNeeded := !isTurnQuota && (turnAllocAttrMissing ||
+					// isAuthError: the group's credentials have expired. Retrying them
+					// is refused for as long as the group lives; only a fetch ends it.
+					turnCredRefreshNeeded := !isTurnQuota && (turnAllocAttrMissing || isAuthError(sessErr) ||
 						strings.Contains(errStrLower, "turn allocate auth") ||
 						strings.Contains(errStrLower, "invalid credential") ||
 						strings.Contains(errStrLower, "stale nonce") ||
