@@ -313,17 +313,15 @@ const (
 	// hours of silence on a wired router, which five minutes still catches.
 	netifdStallTimeout = 5 * time.Minute
 	// How long to keep asking for a first answer before concluding that this
-	// server does not answer echoes at all. Long enough to cover the tunnel
-	// coming up, which is the device appearing, the sessions establishing and
-	// the server assigning an address.
+	// server does not answer echoes at all, counted from the first probe sent.
 	netifdProbeArmFor = 5 * time.Minute
 )
 
 // What the watch does at a given moment. Pulled out of the loop and given a
 // test because getting it wrong takes down a working tunnel.
 //
-// idle is how long since anything at all arrived, age how long the client has
-// been running, and answered whether the server has ever replied to a probe.
+// idle is how long since anything at all arrived, age how long probing has
+// been possible, and answered whether the server has ever replied to a probe.
 //
 // Silence only means something once the server has answered once: one that
 // never does may simply not reply to an echo, and taking its tunnel down every
@@ -385,11 +383,12 @@ func startNetifdTrafficWatch(ctx context.Context, cancel context.CancelFunc, sta
 			}
 		}()
 
-		// Counted from the client starting rather than from the first byte, so
-		// a tunnel that never delivers anything is still probed. Escalating on
-		// one is a separate question, and netifdWatchAction answers it.
-		started := time.Now()
-		lastSeen := started
+		// When a probe could first be sent, which is what the arming window
+		// counts from. Counted from the client starting, a start slowed by a
+		// captcha used it up before the device had an address, and the watch
+		// never armed: a tunnel sat dead for good showing every session up.
+		var armed time.Time
+		lastSeen := time.Now()
 
 		// The outbound side, which only a wireguard-mode tunnel reads: a
 		// relay with nothing pointed at it never sends, and must never be
@@ -433,10 +432,17 @@ func startNetifdTrafficWatch(ctx context.Context, cancel context.CancelFunc, sta
 			}
 
 			idle := now.Sub(lastSeen)
-			if probe != nil && probe.everAnswered() {
+			if !answered && probe != nil && probe.everAnswered() {
 				answered = true
+				// For the status page: silence means something only on a
+				// tunnel whose server is known to answer.
+				writeNetifdRunFile("probe", "1\n")
 			}
-			shouldProbe, giveUp := netifdWatchAction(idle, now.Sub(started), answered)
+			var age time.Duration
+			if !armed.IsZero() {
+				age = now.Sub(armed)
+			}
+			shouldProbe, giveUp := netifdWatchAction(idle, age, answered)
 
 			if giveUp {
 				log.Printf("[NETIFD] nothing has come back through the tunnel for %v, and the server has stopped answering it, giving the interface up so it is rebuilt",
@@ -465,6 +471,9 @@ func startNetifdTrafficWatch(ctx context.Context, cancel context.CancelFunc, sta
 					continue
 				}
 				probe, probeErr = p, false
+				if armed.IsZero() {
+					armed = now
+				}
 			}
 			if err := probe.send(server); err != nil {
 				log.Printf("[NETIFD] probing the tunnel: %v", err)

@@ -192,6 +192,33 @@ function idleOf(net) {
 	return _('%s ago').format('%t'.format(idle));
 }
 
+/* What the rows below it add up to, said first: on a tunnel carrying nothing
+   they still read healthy, every session up and the clock rising, and only
+   "Last received" says otherwise. A quiet RAW-IP tunnel is probed within half
+   a minute, so a minute of silence from a server that answers probes is a dead
+   tunnel; a WireGuard one hears a handshake at least every two. One that has
+   not answered a probe may just be unused or cut off upstream, so it is not
+   called broken. */
+function verdictOf(net) {
+	var r = net.qwdttRuntime || {};
+	var idle = r.idle_for;
+	var rawtun = modeOf(net) == 'rawtun';
+
+	function say(color, text) {
+		return E('strong', { 'style': 'color:' + color }, [ text ]);
+	}
+
+	if (idle == null)
+		return null;
+	if (idle < 0)
+		return say('#b26a00', _('Nothing received yet'));
+	if (idle < (rawtun ? 60 : 180))
+		return say('#2e7d32', _('Working'));
+	if (r.probe_answered || !rawtun)
+		return say('#c62828', _('Not working: nothing received for %s').format('%t'.format(idle)));
+	return say('#b26a00', _('No traffic for %s - the tunnel is unused or the uplink is down (WAN)').format('%t'.format(idle)));
+}
+
 /* Counted from the last time the interface came up. A device recreated since
    then counts from zero and so reads below the baseline, in which case the raw
    total is already the figure that is wanted. */
@@ -243,6 +270,7 @@ function stateOf(net) {
 	var base = net.qwdttRuntime || {};
 
 	return L.itemlist(E('span'), [
+		null, verdictOf(net),
 		/* Not "uptime": this counts from the moment the tunnel last had no
 		   session at all, which is a fact about sessions being established and
 		   nothing more. Read as uptime it says the tunnel has been working that

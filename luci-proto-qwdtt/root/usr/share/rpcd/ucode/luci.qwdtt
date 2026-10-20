@@ -55,7 +55,7 @@ function words(path) {
 // scan on it hid such a tunnel from the page completely - no workers, no
 // relays, no session clock, an empty answer for a tunnel that was carrying
 // traffic.
-const RUNFILE = /^(.+)\.(counters|workers|relays|captcha|traffic|wg)$/;
+const RUNFILE = /^(.+)\.(counters|workers|relays|captcha|traffic|probe|wg)$/;
 
 const methods = {
 	getRuntime: {
@@ -98,7 +98,11 @@ const methods = {
 					// that has received nothing at all since it came up, which
 					// is not the same as one that received something a while
 					// ago.
-					idle_for: traffic ? (traffic[0] ? time() - traffic[0] : -1) : null
+					idle_for: traffic ? (traffic[0] ? time() - traffic[0] : -1) : null,
+					// Whether the server has answered the client's echo since it
+					// started, which is what makes a long idle_for mean a dead
+					// tunnel rather than an unused one.
+					probe_answered: numbers(`${RUNDIR}/${name}.probe`, 1) != null
 				};
 			}
 

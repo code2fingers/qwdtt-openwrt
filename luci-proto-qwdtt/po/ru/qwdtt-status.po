@@ -102,6 +102,18 @@ msgstr "%s назад"
 msgid "nothing yet"
 msgstr "еще ничего"
 
+msgid "Working"
+msgstr "Работает"
+
+msgid "Nothing received yet"
+msgstr "Пока ничего не получено"
+
+msgid "Not working: nothing received for %s"
+msgstr "Не работает: ничего не приходит уже %s"
+
+msgid "No traffic for %s - the tunnel is unused or the uplink is down (WAN)"
+msgstr "Нет трафика уже %s - туннель не используется или не работает внешний канал связи (WAN)"
+
 msgid "Error"
 msgstr "Ошибка"
 
