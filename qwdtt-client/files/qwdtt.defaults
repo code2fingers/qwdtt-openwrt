@@ -60,7 +60,17 @@ if handlers=$(ubus call network get_proto_handlers 2>/dev/null); then
 	for opt in $(sed -n 's/^[[:space:]]*proto_config_add_[a-z]*[[:space:]]*"\([a-z_]*\)".*/\1/p' \
 		/lib/netifd/proto/qwdtt.sh); do
 		[ -z "$(jsonfilter -s "$handlers" -e "@.qwdtt.validate.$opt")" ] || continue
-		/etc/init.d/network restart
+		# Not while apk runs: it downloads each package just before installing
+		# it, and the restart drops WAN and loopback long enough to fail the
+		# next one. 5s of quiet rather than none, as install.sh runs apk twice.
+		(
+			quiet=0
+			while [ "$quiet" -lt 5 ]; do
+				if pidof apk opkg >/dev/null; then quiet=0; else quiet=$((quiet + 1)); fi
+				sleep 1
+			done
+			/etc/init.d/network restart
+		) </dev/null >/dev/null 2>&1 &
 		restarted=1
 		break
 	done
