@@ -140,33 +140,6 @@ func main() {
 
 	var pauseFlag int32
 
-	// STDIN for PAUSE/RESUME/STOP and CAPTCHA_RESULT
-	go func() {
-		scanner := bufio.NewScanner(os.Stdin)
-		for scanner.Scan() {
-			line := strings.TrimSpace(scanner.Text())
-			if !strings.Contains(line, "error:tunnel stopped") {
-				log.Printf("[STDIN] %s", line)
-			}
-			switch {
-			case line == "PAUSE":
-				atomic.StoreInt32(&pauseFlag, 1)
-			case line == "RESUME":
-				atomic.StoreInt32(&pauseFlag, 0)
-			case line == "STOP":
-				cancel()
-				return
-			case strings.HasPrefix(line, "CAPTCHA_RESULT|"):
-				result := strings.TrimPrefix(line, "CAPTCHA_RESULT|")
-				drainCaptchaResult()
-				CaptchaResultChan <- result
-				log.Printf("[CAPTCHA] The result from Kotlin was written to the channel")
-			case strings.HasPrefix(line, "TURN_CREDS|"):
-				handleTurnCredsStdinLine(line)
-			}
-		}
-	}()
-
 	flag.String("config", configPath, "client JSON config")
 	host := flag.String("turn", "", "override the TURN IP")
 	port := flag.String("port", "", "override the TURN port")
@@ -236,8 +209,40 @@ func main() {
 	netifd := flag.Bool("netifd", false, "hand the RAW config to netifd through "+netifdUpScript+" instead of configuring the TUN directly")
 	rawTunSelfTest := flag.String("rawtun-self-test", "", "create a temporary OpenWrt RAW TUN with this IPv4 address")
 	rawTunSelfTestDuration := flag.Duration("rawtun-self-test-duration", 5*time.Second, "temporary RAW TUN self-test duration")
+	parseLinkOnly := flag.Bool("parse-link", false, "read a qwdtt:// or wdtt:// link on stdin, print its settings for -mode (and -notls) as JSON, and exit")
 
 	flag.Parse()
+	if *parseLinkOnly {
+		os.Exit(runParseLink(*connMode, *noDTLS))
+	}
+
+	// STDIN for PAUSE/RESUME/STOP and CAPTCHA_RESULT. Not before -parse-link
+	// has had stdin: this logs every line it reads, and that one is a password.
+	go func() {
+		scanner := bufio.NewScanner(os.Stdin)
+		for scanner.Scan() {
+			line := strings.TrimSpace(scanner.Text())
+			if !strings.Contains(line, "error:tunnel stopped") {
+				log.Printf("[STDIN] %s", line)
+			}
+			switch {
+			case line == "PAUSE":
+				atomic.StoreInt32(&pauseFlag, 1)
+			case line == "RESUME":
+				atomic.StoreInt32(&pauseFlag, 0)
+			case line == "STOP":
+				cancel()
+				return
+			case strings.HasPrefix(line, "CAPTCHA_RESULT|"):
+				result := strings.TrimPrefix(line, "CAPTCHA_RESULT|")
+				drainCaptchaResult()
+				CaptchaResultChan <- result
+				log.Printf("[CAPTCHA] The result from Kotlin was written to the channel")
+			case strings.HasPrefix(line, "TURN_CREDS|"):
+				handleTurnCredsStdinLine(line)
+			}
+		}
+	}()
 	// netifd already prefixes each line of a protocol task with the interface
 	// it belongs to, and syslog already dates it. Repeating either is what put
 	// two clocks on one line, the second of them in UTC while syslog's is

@@ -2,6 +2,7 @@
 'use strict';
 'require form';
 'require network';
+'require rpc';
 'require uci';
 'require ui';
 
@@ -298,6 +299,110 @@ function dropSection(name) {
 	network.registerErrorCode(e[0], e[1]);
 });
 
+/* ---- import from a server link -------------------------------------------
+   A field rather than a dialog, for the reason tests/options.js gives. */
+
+var callParseLink = rpc.declare({
+	object: 'luci.qwdtt',
+	method: 'parseLink',
+	params: [ 'link', 'mode', 'no_dtls' ]
+});
+
+function importField(section, section_id) {
+	function current(name) {
+		var v = section.formvalue(section_id, name);
+		return v != null ? v : uci.get('network', section_id, name);
+	}
+
+	function put(name, value) {
+		var widget = section.getUIElement(section_id, name);
+		widget.setValue(value);
+		widget.triggerValidation();
+	}
+
+	function say(text, warning) {
+		L.dom.content(status, text ? E('span', warning ? { 'style': 'color:#c62828' } : {}, [ text ]) : []);
+	}
+
+	var link = E('textarea', {
+		'class': 'cbi-input-textarea',
+		'rows': 4,
+		'style': 'width:100%',
+		'placeholder': 'qwdtt://… wdtt://…'
+	});
+	var button = E('button', { 'type': 'button', 'class': 'btn cbi-button-action',
+		'disabled': true }, [ _('Import from link …') ]);
+	var status = E('div');
+
+	/* What the link is read with: the form's mode decides the server port. */
+	function inputs() {
+		var wireguard = current('mode') == 'wireguard';
+		return [ link.value.trim(), wireguard ? 'wireguard' : 'rawtun',
+			wireguard && current('no_dtls') == '1' ];
+	}
+
+	/* Null when the link cannot be read, with the reason shown. */
+	function parse() {
+		var asked = inputs();
+
+		if (!asked[0]) {
+			say('');
+			return Promise.resolve(null);
+		}
+		return callParseLink(asked[0], asked[1], asked[2]).then(function(res) {
+			if (inputs().join() != asked.join())
+				return null;
+			if (!res || !res.settings) {
+				var err = (res && res.error) || '';
+				say(err.indexOf('parse-link') != -1
+					? _('The installed qwdtt-client cannot read links; upgrade it.')
+					: _('Not a link this can read: %s').format(err), true);
+				return null;
+			}
+			say('');
+			return res;
+		}).catch(function(e) {
+			say(e.message, true);
+			return null;
+		});
+	}
+
+	function check() {
+		return parse().then(function(res) {
+			button.disabled = !res;
+		});
+	}
+
+	function fill() {
+		return parse().then(function(res) {
+			if (!res)
+				return;
+
+			var s = res.settings;
+			put('peer_host', s.peer_host);
+			put('peer_port', s.peer_port || '');
+			if (current('mode') == 'wireguard' && s.listen_port)
+				put('listen_port', s.listen_port);
+			put('password', s.password);
+			if (s.hashes.length)
+				put('hash', parseHashes([].concat(current('hash') || []).concat(s.hashes)));
+			section.map.checkDepends();
+
+			link.value = '';
+			button.disabled = true;
+			say((s.warnings || []).indexOf('admin_port') != -1
+				? _('The link names port 56002: links made on the admin screen of the app put the admin API port there, not a tunnel port. The default %s is used.')
+					.format(PEER_PORT.wireguard)
+				: '', true);
+		});
+	}
+
+	link.addEventListener('input', check);
+	button.addEventListener('click', fill);
+
+	return E('div', [ link, E('div', { 'style': 'margin-top:4px' }, [ button ]), status ]);
+}
+
 return network.registerProtocol('qwdtt', {
 	getI18n: function() {
 		return _('qWDTT');
@@ -384,7 +489,13 @@ return network.registerProtocol('qwdtt', {
 				addLanRule(s.section, seeded);
 		}
 
-		/* First, because it decides what the rest of the tab means: in
+		o = s.taboption('qwdtt', form.DummyValue, '_import', _('qWDTT-link'),
+			_('Imports a profile from a qwdtt:// or wdtt:// link.'));
+		o.renderWidget = function(section_id) {
+			return importField(this.section, section_id);
+		};
+
+		/* Ahead of the settings, because it decides what the rest of the tab means: in
 		   WireGuard mode this interface has no device, no address and no
 		   routes, so the routing flags below go away with it. */
 		o = s.taboption('qwdtt', form.ListValue, 'mode', _('Mode'),
