@@ -16,9 +16,14 @@
 
 'use strict';
 
-import { lsdir, open } from 'fs';
+import { lsdir, open, popen, mkdir, writefile, unlink } from 'fs';
 
 const RUNDIR = '/var/run/qwdtt';
+
+// The link carries the connection password, so it reaches the client through a
+// file in a directory only root can enter, not on a command line anyone can list.
+// Under /var/run, where only root can create it: in /tmp anyone could first.
+const LINKDIR = '/var/run/qwdtt-link';
 
 function numbers(path, want) {
 	const fd = open(path, 'r');
@@ -107,6 +112,33 @@ const methods = {
 			}
 
 			return out;
+		}
+	},
+
+	// What a qwdtt:// or wdtt:// link sets, read by the client so that the
+	// import dialog and setup.sh agree on it.
+	parseLink: {
+		args: { link: '', mode: '', no_dtls: false },
+		call: function(req) {
+			const mode = (req.args?.mode == 'wireguard') ? 'vpn' : 'rawtun';
+			const path = `${LINKDIR}/link`;
+
+			mkdir(LINKDIR, 0700);
+			writefile(path, `${req.args?.link ?? ''}`);
+			const proc = popen(`/usr/bin/qwdtt-client -parse-link -mode ${mode}` +
+				(req.args?.no_dtls ? ' -notls' : '') + ` < ${path} 2>&1`);
+			const text = trim(proc?.read('all') ?? '');
+			const status = proc?.close();
+			unlink(path);
+
+			let settings;
+			if (status == 0) {
+				try { settings = json(text); } catch (e) {}
+			}
+			if (!settings)
+				return { error: split(text, '\n')[0] };
+
+			return { settings: settings };
 		}
 	}
 };

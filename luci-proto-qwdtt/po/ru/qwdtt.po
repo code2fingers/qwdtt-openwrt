@@ -208,3 +208,21 @@ msgstr "Сколько Кбит/с каждая сессия может прин
 
 msgid "none"
 msgstr "нет"
+
+msgid "qWDTT-link"
+msgstr "qWDTT-ссылка"
+
+msgid "Imports a profile from a qwdtt:// or wdtt:// link."
+msgstr "Импортирует профиль из ссылки qwdtt:// или wdtt://."
+
+msgid "Import from link …"
+msgstr "Импорт из ссылки …"
+
+msgid "The installed qwdtt-client cannot read links; upgrade it."
+msgstr "Установленный qwdtt-client не умеет читать ссылки; обновите его."
+
+msgid "Not a link this can read: %s"
+msgstr "Ссылку не удалось разобрать: %s"
+
+msgid "The link names port 56002: links made on the admin screen of the app put the admin API port there, not a tunnel port. The default %s is used."
+msgstr "В ссылке порт 56002: ссылки из админ-экрана приложения указывают там порт админ-API, а не туннеля. Используется порт по умолчанию %s."

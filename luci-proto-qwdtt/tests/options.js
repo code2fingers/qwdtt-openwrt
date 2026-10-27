@@ -80,7 +80,7 @@ function load(uci, formvalues) {
 	};
 
 	const form = {};
-	[ 'Flag', 'Value', 'ListValue', 'DynamicList' ].forEach(k => {
+	[ 'Flag', 'Value', 'ListValue', 'DynamicList', 'DummyValue' ].forEach(k => {
 		form[k] = function() {};
 		form[k].prototype = { write() {}, renderWidget() { return {}; } };
 	});
@@ -90,9 +90,9 @@ function load(uci, formvalues) {
 		registerProtocol(name, proto) { return proto; }
 	};
 
-	const fn = new Function('form', 'network', 'uci', 'ui', 'L', '_', 'E',
+	const fn = new Function('form', 'network', 'rpc', 'uci', 'ui', 'L', '_', 'E',
 		fs.readFileSync(SRC, 'utf8'));
-	const proto = fn(form, network, uci, {}, { resource: () => '' },
+	const proto = fn(form, network, { declare: () => () => Promise.resolve({}) }, uci, {}, { resource: () => '' },
 		s => s, () => ({}));
 
 	lastProto = proto;
@@ -316,14 +316,14 @@ function check(what, got, want) {
 		}
 	};
 	const form = {};
-	[ 'Flag', 'Value', 'ListValue', 'DynamicList' ].forEach(k => {
+	[ 'Flag', 'Value', 'ListValue', 'DynamicList', 'DummyValue' ].forEach(k => {
 		form[k] = function() {};
 		form[k].prototype = { write() {}, renderWidget() { return {}; } };
 	});
 	const network = { registerErrorCode() {}, registerProtocol(name, proto) { return proto; } };
-	const fn = new Function('form', 'network', 'uci', 'ui', 'L', '_', 'E',
+	const fn = new Function('form', 'network', 'rpc', 'uci', 'ui', 'L', '_', 'E',
 		fs.readFileSync(SRC, 'utf8'));
-	const proto = fn(form, network, uci, {}, { resource: () => '' }, s => s, () => ({}));
+	const proto = fn(form, network, { declare: () => () => Promise.resolve({}) }, uci, {}, { resource: () => '' }, s => s, () => ({}));
 
 	let err = null;
 	try {
